@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import bcrypt from "bcryptjs";
 import { dbConnect } from "@/lib/mongodb";
-import User from "@/models/User";
+import User, { UserDocument } from "@/models/User";
 import { signToken } from "@/lib/jwt";
 
 export async function POST(request: Request) {
@@ -13,7 +13,7 @@ export async function POST(request: Request) {
     }
 
     await dbConnect();
-    const user = await User.findOne({ email }).lean();
+    const user = (await User.findOne({ email }).lean()) as (UserDocument & { _id: string }) | null;
 
     if (!user) {
       return NextResponse.json({ message: "가입되지 않은 이메일입니다." }, { status: 401 });
