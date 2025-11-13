@@ -3,21 +3,23 @@ import { dbConnect } from "@/lib/mongodb";
 import User from "@/models/User";
 
 export async function GET() {
+  type Holding = { price?: number; shares?: number };
+  type LeanUser = { _id: unknown; name?: string; holdings?: Holding[]; cashBalance?: number };
+
   try {
     await dbConnect();
-    const users = await User.find({}, { name: 1, holdings: 1, cashBalance: 1 })
-      .lean()
-      .limit(10);
+    const users = (await User.find({}, { name: 1, holdings: 1, cashBalance: 1 }).lean().limit(10)) as LeanUser[];
 
     const leaderboard = users
       .map((user) => {
-        const holdingsValue = user.holdings?.reduce(
-          (sum, holding) => sum + (holding.price ?? 0) * (holding.shares ?? 0),
-          0,
-        );
+        const holdingsValue =
+          user.holdings?.reduce(
+            (sum: number, holding: Holding) => sum + (holding.price ?? 0) * (holding.shares ?? 0),
+            0,
+          ) ?? 0;
         const totalValue = holdingsValue + (user.cashBalance ?? 0);
         return {
-          id: user._id.toString(),
+          id: String(user._id),
           name: user.name,
           cashBalance: user.cashBalance ?? 0,
           holdingsValue,
