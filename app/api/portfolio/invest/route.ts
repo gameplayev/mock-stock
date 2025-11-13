@@ -34,7 +34,7 @@ export async function POST(request: NextRequest) {
     }
 
     const orderValue = shares * price;
-    const targetIndex = user.holdings.findIndex((holding) => holding.symbol === symbol);
+    const targetIndex = user.holdings.findIndex((holding: HoldingDocument) => holding.symbol === symbol);
     const target = targetIndex >= 0 ? user.holdings[targetIndex] : null;
 
     if (action === "buy") {
