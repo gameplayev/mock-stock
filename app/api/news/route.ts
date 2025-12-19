@@ -10,7 +10,7 @@ export async function GET() {
     await dbConnect();
     const entries = await News.find().sort({ createdAt: -1 }).limit(NEWS_LIMIT).lean();
     const news = entries.map((entry) => ({
-      id: entry._id.toString(),
+      id: String(entry._id),
       title: entry.title,
       summary: entry.summary,
       source: entry.source,

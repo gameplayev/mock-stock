@@ -3,6 +3,8 @@
 :root {
   --background: #020617;
   --foreground: #f8fafc;
+  --font-geist-sans: "Inter", system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  --font-geist-mono: "JetBrains Mono", "SFMono-Regular", Menlo, Consolas, monospace;
 }
 
 @theme inline {
