@@ -6,7 +6,6 @@ import type { Holding } from "@/types/portfolio";
 type HeroSectionProps = {
   userName: string;
   lastUpdated: string;
-  portfolioValue: number;
   portfolioGain: number;
   portfolioGainPercent: number;
   impactLog: string | null;
@@ -15,12 +14,13 @@ type HeroSectionProps = {
   formatCurrency?: typeof formatCurrencyFn;
   formatPercent?: typeof formatPercentFn;
   trendTone: (value: number) => string;
+  assetValue: number;
+  depositPrincipal: number;
 };
 
 export default function HeroSection({
   userName,
   lastUpdated,
-  portfolioValue,
   portfolioGain,
   portfolioGainPercent,
   impactLog,
@@ -29,6 +29,8 @@ export default function HeroSection({
   formatCurrency = formatCurrencyFn,
   formatPercent = formatPercentFn,
   trendTone,
+  assetValue,
+  depositPrincipal,
 }: HeroSectionProps) {
   return (
     <section className="rounded-3xl border border-white/5 bg-gradient-to-r from-slate-900/80 via-slate-900/60 to-slate-900/20 p-8 shadow-2xl shadow-emerald-500/5">
@@ -45,7 +47,7 @@ export default function HeroSection({
 
         <div className="flex flex-col gap-3 text-right">
           <p className="text-sm text-slate-400">총 평가금액</p>
-          <p className="text-4xl font-semibold">{formatCurrency(portfolioValue, { maximumFractionDigits: 0 })}</p>
+          <p className="text-4xl font-semibold">{formatCurrency(assetValue, { maximumFractionDigits: 0 })}</p>
           <p className={`text-sm font-medium ${trendTone(portfolioGain)}`}>
             {formatCurrency(portfolioGain, { maximumFractionDigits: 0 })} ({formatPercent(portfolioGainPercent)})
           </p>
@@ -78,11 +80,15 @@ export default function HeroSection({
         </div>
         <div className="mt-4 flex flex-col gap-3">
           {holdingsPreview.map((holding) => (
-            <div key={holding.symbol} className="flex items-center justify-between rounded-2xl border border-white/10 px-4 py-3">
+            <div
+              key={holding.symbol}
+              className="flex items-center justify-between rounded-2xl border border-white/10 px-4 py-3"
+            >
               <div>
                 <p className="font-semibold text-white">{holding.symbol}</p>
                 <p className="text-xs text-slate-400">
-                  {holding.shares.toLocaleString()}주 · {formatCurrency(holding.price, { maximumFractionDigits: 2 })}
+                  {holding.shares.toLocaleString()}주 ·{" "}
+                  {formatCurrency(holding.price, { maximumFractionDigits: 2 })}
                 </p>
               </div>
               <p className={`text-sm font-semibold ${trendTone(holding.change)}`}>{formatPercent(holding.change)}</p>
@@ -95,6 +101,15 @@ export default function HeroSection({
             </div>
             <p className="text-base font-semibold text-emerald-200">${cashBalance.toLocaleString()}</p>
           </div>
+          {depositPrincipal > 0 && (
+            <div className="flex items-center justify-between rounded-2xl border border-emerald-400/40 bg-emerald-500/5 px-4 py-3">
+              <div>
+                <p className="font-semibold text-white">예금 원금</p>
+                <p className="text-xs text-slate-400">진행 중인 예금 포함</p>
+              </div>
+              <p className="text-base font-semibold text-emerald-200">${depositPrincipal.toLocaleString()}</p>
+            </div>
+          )}
         </div>
       </div>
 

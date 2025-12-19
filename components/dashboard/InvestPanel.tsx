@@ -22,6 +22,7 @@ const EMPTY_FORM = {
 export default function InvestPanel({ holdings, token, cashBalance, onSuccess }: InvestPanelProps) {
   const [form, setForm] = useState(EMPTY_FORM);
   const [action, setAction] = useState<"buy" | "sell">("buy");
+  const [direction, setDirection] = useState<"long" | "short">("long");
   const [status, setStatus] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
 
@@ -29,16 +30,20 @@ export default function InvestPanel({ holdings, token, cashBalance, onSuccess }:
 
   const resolvedSymbol = form.symbol === "custom" ? form.customSymbol.trim().toUpperCase() : form.symbol;
   const resolvedPrice = form.price;
-  const selectedHolding = holdings.find((holding) => holding.symbol === resolvedSymbol);
+  const selectedHolding =
+    holdings.find((holding) => holding.symbol === resolvedSymbol && holding.direction === direction) ??
+    holdings.find((holding) => holding.symbol === resolvedSymbol);
 
   useEffect(() => {
     if (form.symbol && form.symbol !== "custom") {
-      const matched = holdings.find((holding) => holding.symbol === form.symbol);
+      const matched =
+        holdings.find((holding) => holding.symbol === form.symbol && holding.direction === direction) ??
+        holdings.find((holding) => holding.symbol === form.symbol);
       setForm((prev) => ({ ...prev, price: matched ? String(matched.price) : "" }));
     } else if (form.symbol === "custom") {
       setForm((prev) => ({ ...prev, price: "" }));
     }
-  }, [form.symbol, holdings]);
+  }, [form.symbol, holdings, direction]);
 
   const clampShares = useCallback(
     (value: string) => {
@@ -67,16 +72,16 @@ export default function InvestPanel({ holdings, token, cashBalance, onSuccess }:
       return;
     }
 
-    if (action === "sell") {
-      if (!selectedHolding) {
-        setStatus("보유 중인 종목만 매도할 수 있습니다.");
-        return;
+      if (action === "sell") {
+        if (!selectedHolding) {
+          setStatus(`${direction === "long" ? "롱" : "숏"} 포지션이 존재하지 않습니다.`);
+          return;
+        }
+        if (Number(form.shares) > selectedHolding.shares) {
+          setStatus("보유 수량보다 많이 팔 수 없습니다.");
+          return;
+        }
       }
-      if (Number(form.shares) > selectedHolding.shares) {
-        setStatus("보유 수량보다 많이 팔 수 없습니다.");
-        return;
-      }
-    }
 
     setLoading(true);
     setStatus(null);
@@ -94,6 +99,7 @@ export default function InvestPanel({ holdings, token, cashBalance, onSuccess }:
           shares: Number(form.shares),
           price: Number(resolvedPrice),
           action,
+          direction,
         }),
       });
 
@@ -103,7 +109,9 @@ export default function InvestPanel({ holdings, token, cashBalance, onSuccess }:
       }
 
       setForm(EMPTY_FORM);
-      setStatus(action === "buy" ? "매수 주문이 체결되었습니다." : "매도 주문이 체결되었습니다.");
+      setStatus(
+        `${direction === "long" ? "롱" : "숏"} ${action === "buy" ? "진입" : "청산"} 주문이 체결되었습니다.`,
+      );
       onSuccess();
     } catch (error) {
       setStatus(error instanceof Error ? error.message : "주문 처리 중 오류가 발생했습니다.");
@@ -138,6 +146,29 @@ export default function InvestPanel({ holdings, token, cashBalance, onSuccess }:
                 onClick={() => setAction(option.value as "buy" | "sell")}
                 className={`rounded-2xl border px-4 py-2 font-semibold transition ${
                   action === option.value ? "border-emerald-400 bg-emerald-400/20 text-white" : "border-white/10 text-slate-300"
+                }`}
+              >
+                {option.label}
+            </button>
+          ))}
+        </div>
+      </div>
+
+        <div>
+          <label className="text-slate-300">포지션</label>
+          <div className="mt-1 grid grid-cols-2 gap-2">
+            {[
+              { value: "long", label: "롱" },
+              { value: "short", label: "숏" },
+            ].map((option) => (
+              <button
+                key={option.value}
+                type="button"
+                onClick={() => setDirection(option.value as "long" | "short")}
+                className={`rounded-2xl border px-4 py-2 font-semibold transition ${
+                  direction === option.value
+                    ? "border-emerald-400 bg-emerald-400/20 text-white"
+                    : "border-white/10 text-slate-300"
                 }`}
               >
                 {option.label}
@@ -214,12 +245,13 @@ export default function InvestPanel({ holdings, token, cashBalance, onSuccess }:
       <div className="mt-3 text-xs text-slate-400">
         {action === "sell" && selectedHolding ? (
           <p>
-            현재 {selectedHolding.symbol} 보유 {selectedHolding.shares.toLocaleString()}주 · 평단{" "}
-            {formatCurrency(selectedHolding.avgCost, { maximumFractionDigits: 2 })}
+            현재 {selectedHolding.symbol} {direction === "long" ? "롱" : "숏"} {selectedHolding.shares.toLocaleString()}
+            주 · 평단 {formatCurrency(selectedHolding.avgCost, { maximumFractionDigits: 2 })}
           </p>
         ) : (
           <p>매수 시 현금 잔액에서 차감되고, 매도 시 현금이 추가됩니다.</p>
         )}
+        <p className="mt-1">선물 포지션은 3분 후 자동 청산됩니다.</p>
       </div>
 
       {status && <p className="mt-2 text-center text-xs text-amber-200">{status}</p>}

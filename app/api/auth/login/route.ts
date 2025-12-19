@@ -6,17 +6,17 @@ import { signToken } from "@/lib/jwt";
 
 export async function POST(request: Request) {
   try {
-    const { email, password } = await request.json();
+    const { username, password } = await request.json();
 
-    if (!email || !password) {
-      return NextResponse.json({ message: "이메일과 비밀번호를 모두 입력하세요." }, { status: 400 });
+    if (!username || !password) {
+      return NextResponse.json({ message: "아이디와 비밀번호를 모두 입력하세요." }, { status: 400 });
     }
 
     await dbConnect();
-    const user = (await User.findOne({ email }).lean()) as (UserDocument & { _id: string }) | null;
+    const user = (await User.findOne({ username }).lean()) as (UserDocument & { _id: string }) | null;
 
     if (!user) {
-      return NextResponse.json({ message: "가입되지 않은 이메일입니다." }, { status: 401 });
+      return NextResponse.json({ message: "가입되지 않은 아이디입니다." }, { status: 401 });
     }
 
     const isValid = await bcrypt.compare(password, user.password);
@@ -24,8 +24,8 @@ export async function POST(request: Request) {
       return NextResponse.json({ message: "비밀번호가 일치하지 않습니다." }, { status: 401 });
     }
 
-    const token = signToken({ sub: user._id.toString(), email: user.email });
-    return NextResponse.json({ token });
+    const token = signToken({ sub: user._id.toString(), username: user.username, role: user.role });
+    return NextResponse.json({ token, role: user.role });
   } catch (error) {
     console.error("[AUTH][LOGIN]", error);
     return NextResponse.json({ message: "로그인 요청을 처리하지 못했습니다." }, { status: 500 });

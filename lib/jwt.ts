@@ -8,7 +8,8 @@ if (!JWT_SECRET) {
 
 type TokenPayload = {
   sub: string;
-  email: string;
+  username: string;
+  role: "user" | "admin";
 };
 
 export const signToken = (payload: TokenPayload) =>

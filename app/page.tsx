@@ -5,13 +5,16 @@ import { useRouter } from "next/navigation";
 
 // 인증 모드 타입
 type AuthMode = "login" | "register";
+type AccountRole = "user" | "admin";
 
 export default function Home() {
   const router = useRouter();
   const [mode, setMode] = useState<AuthMode>("login");
-  const [email, setEmail] = useState("");
+  const [username, setUsername] = useState("");
   const [password, setPassword] = useState("");
   const [name, setName] = useState("");
+  const [role, setRole] = useState<AccountRole>("user");
+  const [adminCode, setAdminCode] = useState("");
   const [status, setStatus] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
 
@@ -23,7 +26,16 @@ export default function Home() {
 
     try {
       const endpoint = mode === "login" ? "/api/auth/login" : "/api/auth/register";
-      const payload = mode === "login" ? { email, password } : { name, email, password };
+    const payload =
+      mode === "login"
+        ? { username, password }
+        : {
+            name,
+            username,
+            password,
+            role,
+            adminCode: role === "admin" ? adminCode : undefined,
+          };
       const response = await fetch(endpoint, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -39,7 +51,8 @@ export default function Home() {
 
       if (mode === "login") {
         localStorage.setItem("summit-token", data.token);
-        router.push("/dashboard");
+        const destination = data.role === "admin" ? "/admin" : "/dashboard";
+        router.push(destination);
       } else {
         setStatus("가입이 완료되었습니다. 이제 로그인하세요.");
         setMode("login");
@@ -78,16 +91,56 @@ export default function Home() {
           )}
 
           <div className="space-y-1">
-            <label className="text-sm text-slate-300">이메일</label>
-            <input
-              type="email"
-              required
-              value={email}
-              onChange={(event) => setEmail(event.target.value)}
-              className="w-full rounded-2xl border border-white/10 bg-slate-900/60 px-4 py-3 text-sm focus:border-emerald-400 focus:outline-none"
-              placeholder="you@example.com"
-            />
+          <label className="text-sm text-slate-300">아이디</label>
+          <input
+            type="text"
+            required
+            value={username}
+            onChange={(event) => setUsername(event.target.value)}
+            className="w-full rounded-2xl border border-white/10 bg-slate-900/60 px-4 py-3 text-sm focus:border-emerald-400 focus:outline-none"
+            placeholder="id123"
+          />
           </div>
+
+          {mode === "register" && (
+            <>
+              <div className="space-y-1">
+                <p className="text-sm text-slate-300">계정 유형</p>
+                <div className="mt-1 flex gap-2">
+                  {[
+                    { value: "user", label: "일반 계정" },
+                    { value: "admin", label: "관리자 계정" },
+                  ].map((option) => (
+                    <button
+                      key={option.value}
+                      type="button"
+                      onClick={() => setRole(option.value as AccountRole)}
+                      className={`flex-1 rounded-2xl border px-4 py-2 text-sm font-semibold transition ${
+                        role === option.value
+                          ? "border-emerald-400 bg-emerald-400/20 text-white"
+                          : "border-white/10 text-slate-300"
+                      }`}
+                    >
+                      {option.label}
+                    </button>
+                  ))}
+                </div>
+              </div>
+              {role === "admin" && (
+                <div className="space-y-1">
+                  <label className="text-sm text-slate-300">관리자 인증 코드</label>
+                  <input
+                    type="password"
+                    required
+                    value={adminCode}
+                    onChange={(event) => setAdminCode(event.target.value)}
+                    className="w-full rounded-2xl border border-white/10 bg-slate-900/60 px-4 py-3 text-sm focus:border-emerald-400 focus:outline-none"
+                    placeholder="관리자 코드 입력"
+                  />
+                </div>
+              )}
+            </>
+          )}
 
           <div className="space-y-1">
             <label className="text-sm text-slate-300">비밀번호</label>
@@ -116,7 +169,14 @@ export default function Home() {
           {mode === "login" ? "계정이 없으신가요?" : "이미 계정이 있으신가요?"}{" "}
           <button
             className="font-semibold text-emerald-200 underline-offset-4 hover:underline"
-            onClick={() => setMode(mode === "login" ? "register" : "login")}
+            onClick={() => {
+              const nextMode = mode === "login" ? "register" : "login";
+              setMode(nextMode);
+              if (nextMode === "login") {
+                setRole("user");
+                setAdminCode("");
+              }
+            }}
           >
             {mode === "login" ? "회원 가입" : "로그인"}
           </button>

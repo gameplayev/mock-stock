@@ -3,13 +3,16 @@
 import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import DashboardShell from "@/components/dashboard/DashboardShell";
-import type { Holding, LeaderboardEntry } from "@/types/portfolio";
+import type { DepositInfo, Holding } from "@/types/portfolio";
 import { baseHoldings } from "@/lib/mockData";
 
 type PortfolioResponse = {
   name: string;
+  username: string;
   holdings: Holding[];
   cashBalance: number;
+  deposit?: DepositInfo | null;
+  role: "user" | "admin";
 };
 
 export default function DashboardPage() {
@@ -18,10 +21,11 @@ export default function DashboardPage() {
   const [initialHoldings, setInitialHoldings] = useState<Holding[]>(baseHoldings.map((holding) => ({ ...holding })));
   const [cashBalance, setCashBalance] = useState(0);
   const [userName, setUserName] = useState("트레이더");
-  const [leaderboard, setLeaderboard] = useState<LeaderboardEntry[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [accountLoading, setAccountLoading] = useState(false);
+  const [depositInfo, setDepositInfo] = useState<DepositInfo | null>(null);
+  const [depositLoading, setDepositLoading] = useState(false);
 
   const ensureToken = () => {
     const stored = typeof window !== "undefined" ? localStorage.getItem("summit-token") : null;
@@ -36,23 +40,24 @@ export default function DashboardPage() {
   const fetchPortfolio = async (authToken: string) => {
     const response = await fetch("/api/portfolio", { headers: { Authorization: `Bearer ${authToken}` } });
     if (!response.ok) {
+      if (response.status === 403) {
+        router.replace("/admin");
+        return;
+      }
       if (response.status === 401) {
         throw new Error("세션이 만료되었습니다. 다시 로그인하세요.");
       }
       throw new Error("포트폴리오 데이터를 불러오지 못했습니다.");
     }
     const data: PortfolioResponse = await response.json();
+    if (data.role === "admin") {
+      router.replace("/admin");
+      return;
+    }
     setInitialHoldings(data.holdings);
     setUserName(data.name);
     setCashBalance(data.cashBalance ?? 0);
-  };
-
-  const fetchLeaderboard = async () => {
-    const response = await fetch("/api/leaderboard");
-    if (response.ok) {
-      const data = await response.json();
-      setLeaderboard(data.leaderboard ?? []);
-    }
+    setDepositInfo(data.deposit ?? null);
   };
 
   const bootstrap = async () => {
@@ -60,7 +65,6 @@ export default function DashboardPage() {
       const localToken = ensureToken();
       if (!localToken) return;
       await fetchPortfolio(localToken);
-      await fetchLeaderboard();
     } catch (bootstrapError) {
       setError(bootstrapError instanceof Error ? bootstrapError.message : "알 수 없는 오류가 발생했습니다.");
       localStorage.removeItem("summit-token");
@@ -78,7 +82,6 @@ export default function DashboardPage() {
   const handleRefresh = async () => {
     if (!token) return;
     await fetchPortfolio(token);
-    fetchLeaderboard();
   };
 
   const handleLogout = () => {
@@ -126,17 +129,44 @@ export default function DashboardPage() {
     return null;
   }
 
+  const handleStartDeposit = async (amount: number) => {
+    if (!token) return;
+    setDepositLoading(true);
+    setError(null);
+    try {
+      const response = await fetch("/api/deposit", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${token}`,
+        },
+        body: JSON.stringify({ amount }),
+      });
+      if (!response.ok) {
+        const errorData = await response.json();
+        throw new Error(errorData.message ?? "예금 요청이 실패했습니다.");
+      }
+      await fetchPortfolio(token);
+    } catch (depositError) {
+      setError(depositError instanceof Error ? depositError.message : "예금 요청 중 오류가 발생했습니다.");
+    } finally {
+      setDepositLoading(false);
+    }
+  };
+
   return (
     <DashboardShell
       initialHoldings={initialHoldings}
       userName={userName}
       cashBalance={cashBalance}
       token={token}
-      leaderboard={leaderboard}
+      depositInfo={depositInfo}
+      onStartDeposit={handleStartDeposit}
       onPortfolioRefresh={handleRefresh}
       onLogout={handleLogout}
       onDeleteAccount={handleDeleteAccount}
       accountLoading={accountLoading}
+      depositLoading={depositLoading}
     />
   );
 }

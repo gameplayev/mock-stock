@@ -7,15 +7,9 @@ export type Holding = {
   price: number;
   change: number;
   allocation: number;
-};
-
-export type WatchItem = {
-  symbol: string;
-  name: string;
-  price: number;
-  change: number;
-  high: number;
-  low: number;
+  direction?: "long" | "short";
+  openedAt?: string;
+  expiresAt?: string;
 };
 
 export type MarketIndex = {
@@ -25,7 +19,7 @@ export type MarketIndex = {
 };
 
 export type Headline = {
-  id: number;
+  id: number | string;
   title: string;
   summary: string;
   source: string;
@@ -33,13 +27,8 @@ export type Headline = {
   sentiment: "bullish" | "bearish" | "neutral";
   symbol: string;
   impact: number;
+  rateImpact?: number;
   applied?: boolean;
-};
-
-export type Insight = {
-  title: string;
-  description: string;
-  action: string;
 };
 
 export type LeaderboardEntry = {
@@ -48,4 +37,12 @@ export type LeaderboardEntry = {
   totalValue: number;
   holdingsValue: number;
   cashBalance: number;
+};
+
+export type DepositInfo = {
+  amount: number;
+  startedAt: string;
+  dueAt: string;
+  interestRate: number;
+  interest: number;
 };

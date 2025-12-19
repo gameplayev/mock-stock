@@ -28,7 +28,7 @@ export default function NewsFeed({ news, formatPercent = percentUtil }: NewsFeed
             </div>
             <h3 className="mt-3 text-lg font-semibold text-white">{headline.title}</h3>
             <p className="mt-2 text-sm text-slate-300">{headline.summary}</p>
-            <div className="mt-4 flex items-center justify-between">
+            <div className="mt-4 flex flex-col gap-2">
               <span
                 className={`inline-flex rounded-full px-3 py-1 text-xs font-semibold ${
                   headline.sentiment === "bullish"
@@ -40,9 +40,27 @@ export default function NewsFeed({ news, formatPercent = percentUtil }: NewsFeed
               >
                 {sentimentLabel[headline.sentiment]}
               </span>
-              <p className="text-xs text-slate-400">
-                대상: {headline.symbol} · 영향 {formatPercent(headline.impact)}
-              </p>
+              <div className="flex flex-wrap items-center gap-3 text-xs text-slate-400">
+                <span>{headline.symbol === "RATE" ? "금리" : `대상: ${headline.symbol}`}</span>
+                {headline.symbol !== "RATE" && (
+                  <span
+                    className={`text-xs font-semibold ${
+                      headline.impact >= 0 ? "text-emerald-200" : "text-rose-200"
+                    }`}
+                  >
+                    {formatPercent(headline.impact)}
+                  </span>
+                )}
+                {typeof headline.rateImpact === "number" && headline.rateImpact !== 0 && (
+                  <span
+                    className={`text-xs font-semibold ${
+                      headline.rateImpact >= 0 ? "text-amber-200" : "text-slate-200"
+                    }`}
+                  >
+                    금리 {formatPercent(headline.rateImpact)}
+                  </span>
+                )}
+              </div>
             </div>
           </article>
         ))}
