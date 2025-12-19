@@ -100,7 +100,13 @@ export default function StockChartPanel({ holdings, selectedSymbol, onSymbolChan
                 borderRadius: 12,
                 color: "#fff",
               }}
-              formatter={(value: number) => [`$${value.toFixed(2)}`, "가격"]}
+              formatter={(value) => {
+                const numeric = typeof value === "number" ? value : Number(value);
+                if (Number.isNaN(numeric)) {
+                  return ["-", "가격"];
+                }
+                return [`$${numeric.toFixed(2)}`, "가격"];
+              }}
               labelFormatter={(label) => `${label}`}
               cursor={{ stroke: "rgba(255,255,255,0.2)", strokeWidth: 2 }}
             />
