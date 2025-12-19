@@ -32,7 +32,13 @@ const clampPercent = (value: number) => {
   return Number(clamped.toFixed(2));
 };
 
-const stockTemplates = [
+type HeadlineTemplate = {
+  sentiment: Headline["sentiment"];
+  title: (symbol: string) => string;
+  summary: (symbol: string, impact: number) => string;
+};
+
+const stockTemplates: HeadlineTemplate[] = [
   {
     sentiment: "bullish",
     title: (symbol: string) => `${symbol}의 AI 가속 수요가 폭발`,
@@ -71,7 +77,13 @@ const stockTemplates = [
   },
 ];
 
-const rateTemplates = [
+type RateHeadlineTemplate = {
+  sentiment: Headline["sentiment"];
+  title: () => string;
+  summary: (rateImpact: number) => string;
+};
+
+const rateTemplates: RateHeadlineTemplate[] = [
   {
     sentiment: "bearish",
     title: () => "국채 금리 급등, 연준 긴축 시그널",
