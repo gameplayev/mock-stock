@@ -14,7 +14,7 @@ export async function GET(request: NextRequest) {
     const payload = verifyToken(token);
 
     await dbConnect();
-    const user = await User.findById(payload.sub).lean();
+    const user = await User.findById(payload.sub);
     if (!user) {
       return NextResponse.json({ message: "사용자를 찾을 수 없습니다." }, { status: 404 });
     }
