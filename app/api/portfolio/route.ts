@@ -56,7 +56,7 @@ export async function GET(request: NextRequest) {
 
     const activeFutures = user.futuresOrders?.length ? [...user.futuresOrders] : [];
     const resolveMarketPrice = (symbol: string) => {
-      const holdingPrice = user.holdings?.find((holding) => holding.symbol === symbol)?.price;
+      const holdingPrice = user.holdings?.find((holding: HoldingDocument) => holding.symbol === symbol)?.price;
       if (typeof holdingPrice === "number" && holdingPrice > 0) {
         return holdingPrice;
       }
