@@ -29,10 +29,16 @@ const EMPTY_FORM = {
   shares: "",
 };
 
+type StatusVariant = "success" | "error" | "info";
+type FormStatus = {
+  text: string;
+  variant: StatusVariant;
+};
+
 export default function InvestPanel({ holdings, token, cashBalance, onSuccess, marketRunning }: InvestPanelProps) {
   const [form, setForm] = useState(EMPTY_FORM);
   const [action, setAction] = useState<"buy" | "sell">("buy");
-  const [status, setStatus] = useState<string | null>(null);
+  const [status, setStatus] = useState<FormStatus | null>(null);
   const [loading, setLoading] = useState(false);
 
   const heldSymbols = useMemo(
@@ -57,27 +63,28 @@ export default function InvestPanel({ holdings, token, cashBalance, onSuccess, m
   const tradingDisabled = !marketRunning;
   const selectDisabled = tradingDisabled || (action === "sell" && !hasSellableSymbols);
   const sellDisabled = action === "sell" && !hasSellableSymbols;
+  const emitStatus = (text: string, variant: StatusVariant) => setStatus({ text, variant });
 
   const handleSubmit = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
     if (!marketRunning) {
-      setStatus("시장 점검 중에는 주문할 수 없습니다.");
+      emitStatus("시장 점검 중에는 주문할 수 없습니다.", "error");
       return;
     }
     if (!token) return;
     if (!resolvedSymbol) {
-      setStatus("종목을 선택해주세요.");
+      emitStatus("종목을 선택해주세요.", "error");
       return;
     }
 
     const sharesValue = Number(form.shares);
     if (Number.isNaN(sharesValue) || sharesValue <= 0) {
-      setStatus("보유 수량을 1주 이상 입력하세요.");
+      emitStatus("보유 수량을 1주 이상 입력하세요.", "error");
       return;
     }
 
     if (latestPrice <= 0) {
-      setStatus("시장가를 가져올 수 없습니다.");
+      emitStatus("시장가를 가져올 수 없습니다.", "error");
       return;
     }
 
@@ -105,10 +112,70 @@ export default function InvestPanel({ holdings, token, cashBalance, onSuccess, m
       }
 
       setForm((prev) => ({ ...prev, shares: "" }));
-      setStatus(`시장가 ${action === "buy" ? "매수" : "매도"} 주문이 접수되었습니다.`);
+      emitStatus(
+        `시장가 ${action === "buy" ? "매수" : "매도"} 주문이 체결되었습니다.`,
+        "success",
+      );
       onSuccess();
     } catch (error) {
-      setStatus(error instanceof Error ? error.message : "주문 처리 중 오류가 발생했습니다.");
+      emitStatus(
+        error instanceof Error ? error.message : "주문 처리 중 오류가 발생했습니다.",
+        "error",
+      );
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleSellAll = async () => {
+    if (!marketRunning) {
+      emitStatus("시장 점검 중에는 주문할 수 없습니다.", "error");
+      return;
+    }
+    if (!token) {
+      emitStatus("로그인 정보를 확인할 수 없어 주문할 수 없습니다.", "error");
+      return;
+    }
+    if (!currentPosition || currentPosition.shares <= 0) {
+      emitStatus("매도 가능한 자산이 없습니다.", "error");
+      return;
+    }
+    if (latestPrice <= 0) {
+      emitStatus("시장가를 가져올 수 없습니다.", "error");
+      return;
+    }
+
+    setLoading(true);
+    emitStatus("전량 매도 주문을 전송 중입니다.", "info");
+    try {
+      const response = await fetch("/api/portfolio/invest", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${token}`,
+        },
+        body: JSON.stringify({
+          symbol: currentPosition.symbol,
+          name: currentPosition.name ?? currentPosition.symbol,
+          shares: currentPosition.shares,
+          price: latestPrice,
+          action: "sell",
+        }),
+      });
+
+      if (!response.ok) {
+        const error = await response.json();
+        throw new Error(error.message ?? "주문이 거부되었습니다.");
+      }
+
+      setForm((prev) => ({ ...prev, shares: "" }));
+      emitStatus("시장가 매도 주문이 체결되었습니다.", "success");
+      onSuccess();
+    } catch (error) {
+      emitStatus(
+        error instanceof Error ? error.message : "주문 처리 중 오류가 발생했습니다.",
+        "error",
+      );
     } finally {
       setLoading(false);
     }
@@ -212,6 +279,16 @@ export default function InvestPanel({ holdings, token, cashBalance, onSuccess, m
         >
           {loading ? "주문 전송 중..." : action === "buy" ? "시장가 매수" : "시장가 매도"}
         </button>
+        {action === "sell" && hasSellableSymbols && currentPosition?.shares ? (
+          <button
+            type="button"
+            onClick={handleSellAll}
+            disabled={loading || !token || tradingDisabled || currentPosition.shares <= 0}
+            className="w-full rounded-2xl border border-rose-500/30 bg-rose-500/10 py-3 text-sm font-semibold text-rose-200 transition hover:bg-rose-500/20 disabled:opacity-50 disabled:cursor-not-allowed"
+          >
+            {loading ? "전량 매도 중..." : "전량 매도"}
+          </button>
+        ) : null}
       </form>
 
       <div className="mt-3 text-xs text-slate-400">
@@ -226,7 +303,19 @@ export default function InvestPanel({ holdings, token, cashBalance, onSuccess, m
         <p className="mt-1">선물 포지션은 3분 뒤 자동 청산됩니다.</p>
       </div>
 
-      {status && <p className="mt-2 text-center text-xs text-amber-200">{status}</p>}
+      {status && (
+        <p
+          className={`mt-2 text-center text-xs font-semibold ${
+            status.variant === "success"
+              ? "text-emerald-300"
+              : status.variant === "error"
+              ? "text-rose-300"
+              : "text-amber-200"
+          }`}
+        >
+          {status.text}
+        </p>
+      )}
     </div>
   );
 }

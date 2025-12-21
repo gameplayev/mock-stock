@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { useMockMarket } from "@/hooks/useMockMarket";
 import { formatCurrency, formatPercent, trendTone } from "@/lib/numberFormat";
 import type { DepositInfo, Holding } from "@/types/portfolio";
@@ -44,18 +44,87 @@ export default function DashboardShell({
   const { holdings, news, lastUpdated, impactLog, metrics, marketRunning, interestRate } =
     useMockMarket(initialHoldings);
   // 보유 가치 기준 상위 4개를 추려 히어로 카드에 노출
-  const holdingsPreview = [...holdings]
-    .sort((a, b) => b.price * b.shares - a.price * a.shares)
-    .slice(0, 4);
+  const holdingsSorted = [...holdings].sort((a, b) => b.price * b.shares - a.price * a.shares);
 
   const interestRateLabel = `${(interestRate * 100).toFixed(2)}%`;
-  const [selectedSymbol, setSelectedSymbol] = useState<string>(holdings[0]?.symbol ?? "");
-  const fallbackSymbol = holdings[0]?.symbol ?? "";
-  const normalizedSymbol = holdings.find((holding) => holding.symbol === selectedSymbol)
-    ? selectedSymbol
-    : fallbackSymbol;
   const depositPrincipal = depositInfo?.amount ?? 0;
   const totalAssets = metrics.portfolioValue + cashBalance + depositPrincipal;
+  const [adminRefreshNote, setAdminRefreshNote] = useState<string | null>(null);
+  const notifyAdminRefresh = useCallback(
+    (message = "관리자 요청이 반영되었습니다.") => {
+      onPortfolioRefresh();
+      setAdminRefreshNote(message);
+    },
+    [onPortfolioRefresh],
+  );
+
+  useEffect(() => {
+    if (!adminRefreshNote) {
+      return undefined;
+    }
+    const timer = setTimeout(() => setAdminRefreshNote(null), 3000);
+    return () => clearTimeout(timer);
+  }, [adminRefreshNote]);
+
+  const broadcastChannelRef = useRef<BroadcastChannel | null>(null);
+
+  useEffect(() => {
+    if (typeof window === "undefined") {
+      return undefined;
+    }
+    broadcastChannelRef.current = new BroadcastChannel("market-admin-refresh");
+    const ADMIN_REFRESH_KEY = "market-admin-refresh";
+
+    const readMessage = () => {
+      const payload = window.localStorage.getItem(ADMIN_REFRESH_KEY);
+      if (!payload) {
+        return "관리자 요청이 반영되었습니다.";
+      }
+      try {
+        const parsed = JSON.parse(payload);
+        if (typeof parsed.message === "string") {
+          return parsed.message;
+        }
+      } catch {
+        // ignore
+      }
+      return "관리자 요청이 반영되었습니다.";
+    };
+
+    const handleSignal = () => notifyAdminRefresh(readMessage());
+    const handleStorage = (event: StorageEvent) => {
+      if (event.key === ADMIN_REFRESH_KEY) {
+        handleSignal();
+      }
+    };
+    const handleBroadcast = (event: MessageEvent) => {
+      if (typeof event.data !== "string") {
+        return;
+      }
+      try {
+        const parsed = JSON.parse(event.data);
+        if (typeof parsed.message === "string") {
+          notifyAdminRefresh(parsed.message);
+          return;
+        }
+      } catch {
+        // ignore parsing result
+      }
+      notifyAdminRefresh(event.data);
+    };
+
+    window.addEventListener("market-admin-refresh", handleSignal);
+    window.addEventListener("storage", handleStorage);
+    broadcastChannelRef.current?.addEventListener("message", handleBroadcast);
+
+    return () => {
+      window.removeEventListener("market-admin-refresh", handleSignal);
+      window.removeEventListener("storage", handleStorage);
+      broadcastChannelRef.current?.removeEventListener("message", handleBroadcast);
+      broadcastChannelRef.current?.close();
+      broadcastChannelRef.current = null;
+    };
+  }, [notifyAdminRefresh]);
 
   return (
     <main className="min-h-screen bg-slate-950 text-white">
@@ -67,7 +136,7 @@ export default function DashboardShell({
           portfolioGainPercent={metrics.portfolioGainPercent}
           impactLog={impactLog}
           cashBalance={cashBalance}
-          holdingsPreview={holdingsPreview}
+          holdings={holdingsSorted}
           formatCurrency={formatCurrency}
           formatPercent={formatPercent}
           trendTone={trendTone}
@@ -82,7 +151,7 @@ export default function DashboardShell({
         )}
 
         <section className="space-y-6">
-          <StockChartPanel holdings={holdings} selectedSymbol={normalizedSymbol} onSymbolChange={setSelectedSymbol} />
+          <StockChartPanel holdings={holdings} />
           <div className="grid gap-6 md:grid-cols-2">
             <InvestPanel
               holdings={holdings}
@@ -96,11 +165,30 @@ export default function DashboardShell({
         </section>
         <section className="grid gap-6 lg:grid-cols-2">
           <InterestRateCard rate={interestRateLabel} />
-          <DepositCard deposit={depositInfo} loading={depositLoading} onStart={onStartDeposit} />
+          {/* 현재 시장 금리를 deposit 카드에도 표시하여 사용자에게 일관된 기준을 제공합니다. */}
+          <DepositCard
+            deposit={depositInfo}
+            loading={depositLoading}
+            onStart={onStartDeposit}
+            currentInterestRate={interestRate}
+            onPortfolioRefresh={onPortfolioRefresh}
+          />
         </section>
+        {adminRefreshNote && (
+          <div className="rounded-2xl border border-emerald-400/30 bg-emerald-500/10 px-4 py-2 text-xs font-semibold uppercase tracking-[0.3em] text-emerald-200 animate-pulse">
+            {adminRefreshNote}
+          </div>
+        )}
 
         <section className="space-y-6">
-          <HoldingsTable holdings={holdings} formatCurrency={formatCurrency} formatPercent={formatPercent} />
+          <HoldingsTable
+            holdings={holdings}
+            formatCurrency={formatCurrency}
+            formatPercent={formatPercent}
+            token={token}
+            marketRunning={marketRunning}
+            onOrderComplete={onPortfolioRefresh}
+          />
         </section>
 
         <section className="grid gap-6 lg:grid-cols-[2fr,1fr]">

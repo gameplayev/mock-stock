@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import type { FormEvent } from "react";
 import type { DepositInfo } from "@/types/portfolio";
 
@@ -8,6 +8,8 @@ type DepositCardProps = {
   deposit?: DepositInfo | null;
   loading: boolean;
   onStart: (amount: number) => Promise<void>;
+  currentInterestRate: number;
+  onPortfolioRefresh: () => void;
 };
 
 const formatCountdown = (milliseconds: number) => {
@@ -17,9 +19,16 @@ const formatCountdown = (milliseconds: number) => {
   return `${minutes}:${seconds}`;
 };
 
-export default function DepositCard({ deposit, loading, onStart }: DepositCardProps) {
+export default function DepositCard({
+  deposit,
+  loading,
+  onStart,
+  currentInterestRate,
+  onPortfolioRefresh,
+}: DepositCardProps) {
   const [amount, setAmount] = useState("");
   const [ticker, setTicker] = useState(() => Date.now());
+  const maturedRef = useRef(false);
 
   const due = useMemo(() => (deposit ? new Date(deposit.dueAt) : null), [deposit]);
 
@@ -41,6 +50,21 @@ export default function DepositCard({ deposit, loading, onStart }: DepositCardPr
     setAmount("");
   };
 
+  useEffect(() => {
+    if (!deposit) {
+      maturedRef.current = false;
+      return;
+    }
+    if (timeLeft <= 0 && !maturedRef.current) {
+      maturedRef.current = true;
+      onPortfolioRefresh();
+      return;
+    }
+    if (timeLeft > 0) {
+      maturedRef.current = false;
+    }
+  }, [deposit, timeLeft, onPortfolioRefresh]);
+
   return (
     <div className="rounded-3xl border border-white/5 bg-gradient-to-br from-slate-900 via-slate-900/60 to-slate-900/20 p-6 shadow-xl shadow-black/30">
       <div className="flex items-center justify-between">
@@ -50,8 +74,9 @@ export default function DepositCard({ deposit, loading, onStart }: DepositCardPr
       {deposit ? (
         <>
           <p className="mt-4 text-3xl font-semibold text-white">${deposit.amount.toLocaleString()}</p>
+          {/* 현재 시장 금리를 강조하고 실제 이자 수익은 만기 시점의 비율로 계산됩니다. */}
           <p className="text-sm text-slate-300">
-            금리 {Math.round(deposit.interestRate * 1000) / 10}% · 이자 ${deposit.interest.toFixed(2)} 수령
+            현재 기준 금리 {(currentInterestRate * 100).toFixed(2)}% · 만기 예상 이자 ${deposit.interest.toFixed(2)}
           </p>
           <p className="mt-3 text-xs text-slate-400">만기까지 {formatCountdown(timeLeft)}</p>
           <p className="text-xs text-slate-400">

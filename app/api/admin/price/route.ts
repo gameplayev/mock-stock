@@ -22,7 +22,7 @@ export async function POST(request: NextRequest) {
     }
 
     await dbConnect();
-    const users = await User.find({ "holdings.symbol": symbol });
+    const users = await User.find();
     let updatedCount = 0;
 
     for (const user of users) {

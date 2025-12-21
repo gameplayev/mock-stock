@@ -1,5 +1,6 @@
 "use client";
 
+import { useEffect, useMemo, useState } from "react";
 import type { Holding } from "@/types/portfolio";
 import { baseHoldings } from "@/lib/mockData";
 import {
@@ -14,8 +15,6 @@ import {
 
 type StockChartPanelProps = {
   holdings: Holding[];
-  selectedSymbol: string;
-  onSymbolChange: (symbol: string) => void;
 };
 
 const createSeries = (symbol: string, base: number) => {
@@ -28,18 +27,68 @@ const createSeries = (symbol: string, base: number) => {
   });
 };
 
+const HISTORY_LENGTH = 12;
+
 const BASE_SYMBOLS = baseHoldings.map((holding) => holding.symbol);
 const SYMBOL_LOOKUP = baseHoldings.reduce<Record<string, Holding>>((acc, holding) => {
   acc[holding.symbol] = holding;
   return acc;
 }, {});
 
-export default function StockChartPanel({ holdings, selectedSymbol, onSymbolChange }: StockChartPanelProps) {
-  const chartSymbols = Array.from(new Set([...BASE_SYMBOLS, ...holdings.map((holding) => holding.symbol)]));
-  const symbolToShow = selectedSymbol && chartSymbols.includes(selectedSymbol) ? selectedSymbol : chartSymbols[0];
+export default function StockChartPanel({ holdings }: StockChartPanelProps) {
+  const [history, setHistory] = useState<Record<string, number[]>>(() => {
+    const seeded: Record<string, number[]> = {};
+    BASE_SYMBOLS.forEach((symbol) => {
+      const reference = SYMBOL_LOOKUP[symbol];
+      seeded[symbol] = createSeries(symbol, reference?.price ?? 100);
+    });
+    return seeded;
+  });
+  const [selectedSymbol, setSelectedSymbol] = useState<string>(BASE_SYMBOLS[0]);
+
+  useEffect(() => {
+    if (!holdings.length) {
+      return;
+    }
+
+    setHistory((prev) => {
+      const next = { ...prev };
+      holdings.forEach((holding) => {
+        const symbol = holding.symbol;
+        const latestPrice = Number(holding.price.toFixed(2));
+        const previousSeries = next[symbol] ?? createSeries(symbol, latestPrice);
+        const recent =
+          previousSeries.length > HISTORY_LENGTH ? previousSeries.slice(-HISTORY_LENGTH) : previousSeries;
+        const lastPrice = recent[recent.length - 1];
+        if (lastPrice === latestPrice) {
+          next[symbol] = recent;
+          return;
+        }
+        next[symbol] = [...recent.slice(-HISTORY_LENGTH + 1), latestPrice];
+      });
+      return next;
+    });
+  }, [holdings]);
+
+  const chartSymbols = useMemo(() => {
+    const symbolSet = new Set<string>();
+    BASE_SYMBOLS.forEach((symbol) => symbolSet.add(symbol));
+    holdings.forEach((holding) => symbolSet.add(holding.symbol));
+    Object.keys(history).forEach((symbol) => symbolSet.add(symbol));
+    return Array.from(symbolSet).sort();
+  }, [history, holdings]);
+
+  useEffect(() => {
+    if (!chartSymbols.length) {
+      return;
+    }
+    setSelectedSymbol((prev) => (chartSymbols.includes(prev) ? prev : chartSymbols[0]));
+  }, [chartSymbols]);
+
+  const symbolToShow = selectedSymbol || chartSymbols[0] || BASE_SYMBOLS[0];
   const baseReference = SYMBOL_LOOKUP[symbolToShow];
   const active = holdings.find((holding) => holding.symbol === symbolToShow) ?? baseReference;
-  const series = createSeries(symbolToShow, active?.price ?? 100);
+  const series = history[symbolToShow] ?? createSeries(symbolToShow, active?.price ?? 100);
   const minPoint = Math.min(...series);
   const maxPoint = Math.max(...series);
   const latest = series[series.length - 1];
@@ -58,7 +107,7 @@ export default function StockChartPanel({ holdings, selectedSymbol, onSymbolChan
       <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
         <div>
           <p className="text-xs uppercase tracking-[0.35em] text-slate-400">차트</p>
-          <h3 className="text-lg font-semibold text-white">{symbolToShow} 흐름</h3>
+          <h3 className="text-lg font-semibold text-white">{symbolToShow} 차트</h3>
           <p className={`text-sm ${trendTone}`}>
             {delta >= 0 ? "+" : ""}
             {delta.toFixed(2)} (최근)
@@ -67,7 +116,7 @@ export default function StockChartPanel({ holdings, selectedSymbol, onSymbolChan
         <select
           className="rounded-2xl border border-white/10 bg-slate-900/60 px-3 py-2 text-sm"
           value={symbolToShow}
-          onChange={(event) => onSymbolChange(event.target.value)}
+          onChange={(event) => setSelectedSymbol(event.target.value)}
         >
           {chartSymbols.map((symbol) => (
             <option key={symbol} value={symbol}>
@@ -131,10 +180,10 @@ export default function StockChartPanel({ holdings, selectedSymbol, onSymbolChan
 
       <div className="mt-4 text-sm text-slate-400">
         <p>
-          현재가 {active ? `$${active.price.toFixed(2)}` : "-"} · {active?.direction?.toUpperCase() ?? "LONG"}
+          현재 {active ? `$${active.price.toFixed(2)}` : "-"} · {active?.direction?.toUpperCase() ?? "LONG"}
         </p>
         <p>
-          최저 {minPoint.toFixed(2)} · 최고 {maxPoint.toFixed(2)}
+          최소 {minPoint.toFixed(2)} · 최대 {maxPoint.toFixed(2)}
         </p>
       </div>
     </div>

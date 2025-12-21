@@ -2,7 +2,8 @@ import { NextRequest, NextResponse } from "next/server";
 import { verifyToken } from "@/lib/jwt";
 import { dbConnect } from "@/lib/mongodb";
 import User, { UserDocument } from "@/models/User";
-import { DEPOSIT_DURATION_MS, DEPOSIT_INTEREST_RATE, getDepositSnapshot, settleDepositIfMatured } from "@/lib/deposit";
+import { DEPOSIT_DURATION_MS, getDepositSnapshot, settleDepositIfMatured } from "@/lib/deposit";
+import { getInterestRate } from "@/lib/marketControl";
 
 export async function POST(request: NextRequest) {
   try {
@@ -46,12 +47,13 @@ export async function POST(request: NextRequest) {
       amount: depositAmount,
       startedAt: now,
       dueAt: new Date(now.getTime() + DEPOSIT_DURATION_MS),
-      interestRate: DEPOSIT_INTEREST_RATE,
+      interestRate: getInterestRate(),
     };
 
     await user.save();
 
-    const snapshot = getDepositSnapshot(user.fixedDeposit);
+    // Snapshot uses the live benchmark so the UI rate matches the rate card.
+    const snapshot = getDepositSnapshot(user.fixedDeposit, getInterestRate());
     return NextResponse.json({ deposit: snapshot });
   } catch (error) {
     console.error("[DEPOSIT][POST]", error);

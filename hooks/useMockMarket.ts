@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { Headline, Holding } from "@/types/portfolio";
-import { newsSeed } from "@/lib/mockData";
+import { baseHoldings, newsSeed } from "@/lib/mockData";
 import { DEFAULT_INTEREST_RATE } from "@/lib/marketControl";
 
 // 정규화에 사용할 범용 함수
@@ -39,6 +39,31 @@ const NEWS_LIMIT = 8;
 
 const cloneHoldings = (holdings: Holding[]) => holdings.map((holding) => ({ ...holding }));
 const cloneHeadlines = (headlines: Headline[]) => headlines.map((headline) => ({ ...headline }));
+const BASE_SYMBOLS = baseHoldings.map((holding) => holding.symbol);
+const ADMIN_REFRESH_KEY = "market-admin-refresh";
+type AdminBroadcastData = { type: "news"; headline: Headline };
+type AdminBroadcastPayload = {
+  message: string;
+  data?: AdminBroadcastData;
+};
+const DEFAULT_ADMIN_MESSAGE = "관리자 요청이 반영되었습니다.";
+
+// Ensure every supported symbol is present for the asset overview, even when shares are zero.
+const normalizeHoldings = (holdings: Holding[]) => {
+  const bucket = new Map<string, Holding>();
+  holdings.forEach((holding) => {
+    bucket.set(holding.symbol, holding);
+  });
+
+  const merged: Holding[] = baseHoldings.map((base) => bucket.get(base.symbol) ?? { ...base });
+  holdings.forEach((holding) => {
+    if (!BASE_SYMBOLS.includes(holding.symbol)) {
+      merged.push(holding);
+    }
+  });
+
+  return merged;
+};
 
 export const useMockMarket = (initialHoldings: Holding[]): UseMockMarketResult => {
   const [holdings, setHoldings] = useState<Holding[]>(initialHoldings);
@@ -61,7 +86,6 @@ export const useMockMarket = (initialHoldings: Holding[]): UseMockMarketResult =
     if (!rateImpact) return;
     setInterestRate((prev) => clampInterest(prev + rateImpact / 100));
   }, []);
-
   const addHeadline = useCallback(
     (headline: Headline) => {
       if (headline.rateImpact) {
@@ -77,13 +101,37 @@ export const useMockMarket = (initialHoldings: Holding[]): UseMockMarketResult =
     [adjustInterestRate],
   );
 
+  const applyAdminHeadline = useCallback(
+    (headline: Headline) => {
+      addHeadline({ ...headline, applied: true });
+      setHoldings((prevHoldings) =>
+        prevHoldings.map((holding) =>
+          holding.symbol === headline.symbol
+            ? {
+                ...holding,
+                price: clampPrice(holding.price * (1 + headline.impact / 100)),
+                change: Number(headline.impact.toFixed(2)),
+              }
+            : holding,
+        ),
+      );
+      const verb = headline.impact >= 0 ? "상승" : "하락";
+      setImpactLog(
+        `${headline.symbol} · 관리자 뉴스 영향으로 ${Math.abs(headline.impact).toFixed(2)}% ${verb}`,
+      );
+    },
+    [addHeadline, setHoldings, setImpactLog],
+  );
+
+  const normalizedHoldings = useMemo(() => normalizeHoldings(initialHoldings), [initialHoldings]);
+
   // 외부에서 새로운 초기 데이터를 받을 경우 즉시 반영
   useEffect(() => {
-    if (initialHoldings.length) {
+    if (normalizedHoldings.length) {
       // eslint-disable-next-line react-hooks/set-state-in-effect -- 서버에서 새 데이터를 받으면 보유 내역을 동기화합니다.
-      setHoldings(cloneHoldings(initialHoldings));
+      setHoldings(cloneHoldings(normalizedHoldings));
     }
-  }, [initialHoldings]);
+  }, [normalizedHoldings]);
 
   const createAutoHeadline = useCallback(() => {
     if (!marketRunningRef.current) {
@@ -194,7 +242,7 @@ export const useMockMarket = (initialHoldings: Holding[]): UseMockMarketResult =
 
         if (typeof state.resetNonce === "number" && state.resetNonce !== resetRef.current) {
           resetRef.current = state.resetNonce;
-          setHoldings(cloneHoldings(initialHoldings));
+          setHoldings(cloneHoldings(normalizedHoldings));
           setNews(cloneHeadlines(newsSeed));
           setImpactLog(null);
           setLastUpdated(formatTimestamp());
@@ -212,13 +260,12 @@ export const useMockMarket = (initialHoldings: Holding[]): UseMockMarketResult =
       controller.abort();
       clearInterval(interval);
     };
-  }, [initialHoldings]);
+  }, [normalizedHoldings]);
 
-  useEffect(() => {
-    const controller = new AbortController();
-    const fetchAdminNews = async () => {
+  const fetchAdminNews = useCallback(
+    async (signal?: AbortSignal) => {
       try {
-        const response = await fetch("/api/news", { signal: controller.signal });
+        const response = await fetch("/api/news", signal ? { signal } : undefined);
         if (!response.ok) {
           return;
         }
@@ -235,11 +282,64 @@ export const useMockMarket = (initialHoldings: Holding[]): UseMockMarketResult =
       } catch {
         // ignore
       }
+    },
+    [addHeadline],
+  );
+
+  const processAdminPayload = useCallback(
+    (payload: AdminBroadcastPayload) => {
+      if (payload.data?.type === "news" && payload.data.headline) {
+        applyAdminHeadline(payload.data.headline);
+        return;
+      }
+      fetchAdminNews();
+    },
+    [applyAdminHeadline, fetchAdminNews],
+  );
+
+  useEffect(() => {
+    const controller = new AbortController();
+    fetchAdminNews(controller.signal);
+
+    const readAdminPayload = (): AdminBroadcastPayload => {
+      if (typeof window === "undefined") {
+        return { message: DEFAULT_ADMIN_MESSAGE };
+      }
+      const raw = window.localStorage.getItem(ADMIN_REFRESH_KEY);
+      if (!raw) {
+        return { message: DEFAULT_ADMIN_MESSAGE };
+      }
+      try {
+        const parsed = JSON.parse(raw);
+        return {
+          message: typeof parsed.message === "string" ? parsed.message : DEFAULT_ADMIN_MESSAGE,
+          data: parsed.data,
+        };
+      } catch {
+        return { message: DEFAULT_ADMIN_MESSAGE };
+      }
     };
 
-    fetchAdminNews();
-    return () => controller.abort();
-  }, [addHeadline]);
+    const handleAdminRefresh = () => {
+      processAdminPayload(readAdminPayload());
+    };
+    const handleStorageEvent = (event: StorageEvent) => {
+      if (event.key === ADMIN_REFRESH_KEY) {
+        handleAdminRefresh();
+      }
+    };
+    if (typeof window !== "undefined") {
+      window.addEventListener("market-admin-refresh", handleAdminRefresh);
+      window.addEventListener("storage", handleStorageEvent);
+    }
+    return () => {
+      controller.abort();
+      if (typeof window !== "undefined") {
+        window.removeEventListener("market-admin-refresh", handleAdminRefresh);
+        window.removeEventListener("storage", handleStorageEvent);
+      }
+    };
+  }, [fetchAdminNews, processAdminPayload]);
 
   const metrics = useMemo(() => {
     const portfolioValue = holdings.reduce((total, holding) => total + holding.price * holding.shares, 0);

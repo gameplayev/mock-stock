@@ -1,12 +1,13 @@
 "use client";
 
-import { FormEvent, useCallback, useEffect, useMemo, useState } from "react";
+import { FormEvent, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import type { Holding } from "@/types/portfolio";
 import { formatCurrency } from "@/lib/numberFormat";
 import type { MarketState } from "@/lib/marketControl";
 
 const STOCK_SYMBOLS = ["NVDA", "AAPL", "TSLA", "AMZN", "TSM", "SPACEX", "META", "AMD", "INTC", "NFLX", "MSFT", "GOOGL"];
+const ADMIN_REFRESH_KEY = "market-admin-refresh";
 
 type AdminUser = {
   id: string;
@@ -14,6 +15,7 @@ type AdminUser = {
   username: string;
   cashBalance: number;
   holdings: Holding[];
+  role: "user" | "admin";
 };
 
 type AlertState = {
@@ -28,7 +30,6 @@ export default function AdminPage() {
   const [users, setUsers] = useState<AdminUser[]>([]);
   const [loading, setLoading] = useState(true);
   const [status, setStatus] = useState<AlertState>(null);
-  const [stockForm, setStockForm] = useState({ symbol: STOCK_SYMBOLS[0], price: "" });
   const [newsForm, setNewsForm] = useState({
     title: "",
     summary: "",
@@ -40,6 +41,7 @@ export default function AdminPage() {
   const [cashInputs, setCashInputs] = useState<Record<string, string>>({});
   const [actionLoading, setActionLoading] = useState<string | null>(null);
   const [marketState, setMarketState] = useState<MarketState | null>(null);
+  const [recentAction, setRecentAction] = useState<string | null>(null);
   const fetchMarketState = useCallback(async () => {
     try {
       const response = await fetch("/api/market/state");
@@ -55,6 +57,7 @@ export default function AdminPage() {
 
   const scoreboard = useMemo(() => {
     return [...users]
+      .filter((user) => user.role !== "admin")
       .map((user) => {
         const holdingsValue = user.holdings.reduce((sum, holding) => sum + holding.price * holding.shares, 0);
         const totalValue = holdingsValue + user.cashBalance;
@@ -80,26 +83,50 @@ export default function AdminPage() {
     setCashInputs(cashMap);
   }, []);
 
+  const broadcastChannel = useRef<BroadcastChannel | null>(null);
+
+  useEffect(() => {
+    if (typeof window === "undefined") {
+      return undefined;
+    }
+    broadcastChannel.current = new BroadcastChannel("market-admin-refresh");
+    return () => {
+      broadcastChannel.current?.close();
+      broadcastChannel.current = null;
+    };
+  }, []);
+
+  const broadcastAdminRefresh = useCallback((message: string, data?: unknown) => {
+    // Save a timestamped payload so storage events always fire in other tabs,
+    // then dispatch a custom event for the active tab.
+    if (typeof window === "undefined") return;
+    const payloadData = { message, data, timestamp: Date.now() };
+    const payload = JSON.stringify(payloadData);
+    window.localStorage.setItem(ADMIN_REFRESH_KEY, payload);
+    window.dispatchEvent(new Event("market-admin-refresh"));
+    broadcastChannel.current?.postMessage(payload);
+  }, []);
+
   const bootstrap = useCallback(
     async (authToken: string) => {
       try {
         const meResponse = await fetch("/api/admin/me", {
           headers: { Authorization: `Bearer ${authToken}` },
         });
-      if (!meResponse.ok) {
-        throw new Error("관리자 인증에 실패했습니다.");
+        if (!meResponse.ok) {
+          throw new Error("관리자 인증에 실패했습니다.");
+        }
+        const meData = await meResponse.json();
+        if (meData.role !== "admin") {
+          router.replace("/dashboard");
+          return;
+        }
+        setAdminName(meData.name ?? "관리자");
+        await refreshUsers(authToken);
+      } finally {
+        setLoading(false);
       }
-      const meData = await meResponse.json();
-      if (meData.role !== "admin") {
-        router.replace("/dashboard");
-        return;
-      }
-      setAdminName(meData.name ?? "관리자");
-      await refreshUsers(authToken);
-    } finally {
-      setLoading(false);
-    }
-  },
+    },
     [router, refreshUsers],
   );
 
@@ -118,6 +145,14 @@ export default function AdminPage() {
   useEffect(() => {
     fetchMarketState();
   }, [fetchMarketState]);
+
+  useEffect(() => {
+    if (!recentAction) {
+      return undefined;
+    }
+    const timer = setTimeout(() => setRecentAction(null), 2200);
+    return () => clearTimeout(timer);
+  }, [recentAction]);
 
   const handleMarketAction = useCallback(
     async (action: "pause" | "start" | "reset") => {
@@ -151,37 +186,6 @@ export default function AdminPage() {
     [token],
   );
 
-  const handlePriceUpdate = async (event: FormEvent<HTMLFormElement>) => {
-    event.preventDefault();
-    if (!token) return;
-    setActionLoading("price");
-    setStatus(null);
-    try {
-      const priceClean = Number(stockForm.price);
-      if (!stockForm.symbol || Number.isNaN(priceClean) || priceClean <= 0) {
-        throw new Error("적절한 가격을 입력하세요.");
-      }
-      const response = await fetch("/api/admin/price", {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          Authorization: `Bearer ${token}`,
-        },
-        body: JSON.stringify({ symbol: stockForm.symbol, price: priceClean }),
-      });
-
-      if (!response.ok) {
-        const errorData = await response.json();
-        throw new Error(errorData.message ?? "가격 업데이트 실패");
-      }
-      setStatus({ type: "success", message: "주가 변동이 적용되었습니다." });
-    } catch (error) {
-      setStatus({ type: "error", message: error instanceof Error ? error.message : "오류가 발생했습니다." });
-    } finally {
-      setActionLoading(null);
-    }
-  };
-
   const handleNewsSubmit = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
     if (!token) return;
@@ -202,7 +206,7 @@ export default function AdminPage() {
       if (Math.abs(impactValue) > 30 || Math.abs(rateValue) > 30) {
         throw new Error("변동치는 ±30% 이내여야 합니다.");
       }
-      const response = await fetch("/api/news", {
+      const response = await fetch("/api/news/broadcast", {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
@@ -221,7 +225,15 @@ export default function AdminPage() {
         const errorData = await response.json();
         throw new Error(errorData.message ?? "뉴스 등록 실패");
       }
-      setStatus({ type: "success", message: "뉴스가 적용되었습니다." });
+      const responseBody = await response.json();
+      const { headline } = responseBody;
+      if (!headline?.symbol) {
+        throw new Error("뉴스가 정상적으로 등록되지 않았습니다.");
+      }
+      // Success path: notify dashboards, show animation, and clear the form.
+      setStatus({ type: "success", message: "뉴스가 추가되었습니다." });
+      broadcastAdminRefresh("뉴스가 반영되었습니다.", { type: "news", headline });
+      setRecentAction("news");
       setNewsForm((prev) => ({ ...prev, title: "", summary: "", impact: "1.0", rateImpact: "0.0" }));
     } catch (error) {
       setStatus({ type: "error", message: error instanceof Error ? error.message : "오류가 발생했습니다." });
@@ -314,7 +326,7 @@ export default function AdminPage() {
             </button>
           </div>
           <p className="text-sm text-slate-400">
-            이 패널에서 유저 자산을 직접 조정하거나 주가를 일괄 변경하고, 신규 뉴스까지 배포할 수 있습니다.
+            이 패널에서 유저 자산을 직접 조정하거나 신규 뉴스까지 배포할 수 있습니다.
             변경 사항은 즉시 사용자 화면에 반영됩니다.
           </p>
           <div className="rounded-3xl border border-white/10 bg-white/[0.02] p-4 text-sm text-slate-300">
@@ -397,112 +409,81 @@ export default function AdminPage() {
           </article>
 
           <article className="rounded-3xl border border-white/10 bg-white/[0.03] p-6 shadow-xl shadow-black/40">
-            <div className="space-y-6">
-              <div>
-                <p className="text-xs uppercase tracking-[0.35em] text-emerald-200">주가 조정</p>
-                <h3 className="text-lg font-semibold text-white">임의 변동</h3>
-                <p className="text-sm text-slate-400">모든 계정의 보유 가격이 일괄 반영됩니다.</p>
-                <form className="mt-4 space-y-3 text-sm" onSubmit={handlePriceUpdate}>
+            <div>
+              <p className="text-xs uppercase tracking-[0.35em] text-emerald-200">뉴스 배포</p>
+              <h3 className="text-lg font-semibold text-white">임의 뉴스</h3>
+              <p className="text-sm text-slate-400">즉시 푸시하여 자동 시세에 영향을 줍니다.</p>
+              <form className="mt-4 space-y-3 text-sm" onSubmit={handleNewsSubmit}>
+                <input
+                  type="text"
+                  required
+                  value={newsForm.title}
+                  onChange={(event) => setNewsForm((prev) => ({ ...prev, title: event.target.value }))}
+                  className="w-full rounded-2xl border border-white/10 bg-slate-900/60 px-3 py-2"
+                  placeholder="제목"
+                />
+                <textarea
+                  required
+                  value={newsForm.summary}
+                  onChange={(event) => setNewsForm((prev) => ({ ...prev, summary: event.target.value }))}
+                  className="w-full rounded-2xl border border-white/10 bg-slate-900/60 px-3 py-2"
+                  placeholder="요약"
+                />
+                <div className="grid gap-3 md:grid-cols-2">
                   <select
-                    className="w-full rounded-2xl border border-white/10 bg-slate-900/50 px-3 py-2"
-                    value={stockForm.symbol}
-                    onChange={(event) => setStockForm((prev) => ({ ...prev, symbol: event.target.value }))}
+                    className="rounded-2xl border border-white/10 bg-slate-900/60 px-3 py-2 text-sm"
+                    value={newsForm.symbol}
+                    onChange={(event) => setNewsForm((prev) => ({ ...prev, symbol: event.target.value }))}
                   >
                     {STOCK_SYMBOLS.map((symbol) => (
                       <option key={symbol} value={symbol}>
                         {symbol}
                       </option>
                     ))}
+                    <option value="RATE">금리</option>
                   </select>
-                  <input
-                    type="number"
-                    min="1"
-                    step="0.01"
-                    required
-                    value={stockForm.price}
-                    onChange={(event) => setStockForm((prev) => ({ ...prev, price: event.target.value }))}
-                    className="w-full rounded-2xl border border-white/10 bg-slate-900/60 px-3 py-2"
-                    placeholder="새 시세 입력"
-                  />
-                  <button
-                    type="submit"
-                    disabled={actionLoading === "price"}
-                    className="w-full rounded-2xl bg-emerald-400/90 px-4 py-2 text-sm font-semibold text-slate-950 transition hover:bg-emerald-300 disabled:opacity-60"
+                  <select
+                    className="rounded-2xl border border-white/10 bg-slate-900/60 px-3 py-2 text-sm"
+                    value={newsForm.sentiment}
+                    onChange={(event) => setNewsForm((prev) => ({ ...prev, sentiment: event.target.value }))}
                   >
-                    {actionLoading === "price" ? "반영 중..." : "주가 반영"}
-                  </button>
-                </form>
-              </div>
-
-              <div>
-                <p className="text-xs uppercase tracking-[0.35em] text-emerald-200">뉴스 배포</p>
-                <h3 className="text-lg font-semibold text-white">임의 뉴스</h3>
-                <p className="text-sm text-slate-400">즉시 푸시하여 자동 시세에 영향을 줍니다.</p>
-                <form className="mt-4 space-y-3 text-sm" onSubmit={handleNewsSubmit}>
-                  <input
-                    type="text"
-                    required
-                    value={newsForm.title}
-                    onChange={(event) => setNewsForm((prev) => ({ ...prev, title: event.target.value }))}
-                    className="w-full rounded-2xl border border-white/10 bg-slate-900/60 px-3 py-2"
-                    placeholder="제목"
-                  />
-                  <textarea
-                    required
-                    value={newsForm.summary}
-                    onChange={(event) => setNewsForm((prev) => ({ ...prev, summary: event.target.value }))}
-                    className="w-full rounded-2xl border border-white/10 bg-slate-900/60 px-3 py-2"
-                    placeholder="요약"
-                  />
-                  <div className="grid gap-3 md:grid-cols-2">
-                    <select
-                      className="rounded-2xl border border-white/10 bg-slate-900/60 px-3 py-2 text-sm"
-                      value={newsForm.symbol}
-                      onChange={(event) => setNewsForm((prev) => ({ ...prev, symbol: event.target.value }))}
-                    >
-                      {STOCK_SYMBOLS.map((symbol) => (
-                        <option key={symbol} value={symbol}>
-                          {symbol}
-                        </option>
-                      ))}
-                      <option value="RATE">금리</option>
-                    </select>
-                    <select
-                      className="rounded-2xl border border-white/10 bg-slate-900/60 px-3 py-2 text-sm"
-                      value={newsForm.sentiment}
-                      onChange={(event) => setNewsForm((prev) => ({ ...prev, sentiment: event.target.value }))}
-                    >
-                      <option value="bullish">강세</option>
-                      <option value="bearish">약세</option>
-                      <option value="neutral">중립</option>
-                    </select>
-                  </div>
-                  <input
-                    type="number"
-                    required
-                    step="0.01"
-                    value={newsForm.impact}
-                    onChange={(event) => setNewsForm((prev) => ({ ...prev, impact: event.target.value }))}
-                    className="w-full rounded-2xl border border-white/10 bg-slate-900/60 px-3 py-2"
-                    placeholder="영향력 (예: 1.5)"
-                  />
-                  <input
-                    type="number"
-                    step="0.01"
-                    value={newsForm.rateImpact}
-                    onChange={(event) => setNewsForm((prev) => ({ ...prev, rateImpact: event.target.value }))}
-                    className="w-full rounded-2xl border border-white/10 bg-slate-900/60 px-3 py-2"
-                    placeholder="금리 영향 (예: -0.25)"
-                  />
-                  <button
-                    type="submit"
-                    disabled={actionLoading === "news"}
-                    className="w-full rounded-2xl bg-emerald-400/90 px-4 py-2 text-sm font-semibold text-slate-950 transition hover:bg-emerald-300 disabled:opacity-60"
-                  >
-                    {actionLoading === "news" ? "툴 적용 중..." : "뉴스 추가"}
-                  </button>
-                </form>
-              </div>
+                    <option value="bullish">강세</option>
+                    <option value="bearish">약세</option>
+                    <option value="neutral">중립</option>
+                  </select>
+                </div>
+                <input
+                  type="number"
+                  required
+                  step="0.01"
+                  value={newsForm.impact}
+                  onChange={(event) => setNewsForm((prev) => ({ ...prev, impact: event.target.value }))}
+                  className="w-full rounded-2xl border border-white/10 bg-slate-900/60 px-3 py-2"
+                  placeholder="영향력 (예: 1.5)"
+                />
+                <input
+                  type="number"
+                  step="0.01"
+                  value={newsForm.rateImpact}
+                  onChange={(event) => setNewsForm((prev) => ({ ...prev, rateImpact: event.target.value }))}
+                  className="w-full rounded-2xl border border-white/10 bg-slate-900/60 px-3 py-2"
+                  placeholder="금리 영향 (예: -0.25)"
+                />
+                <button
+                  type="submit"
+                  disabled={actionLoading === "news"}
+                  className={`w-full rounded-2xl bg-emerald-400/90 px-4 py-2 text-sm font-semibold text-slate-950 transition hover:bg-emerald-300 disabled:opacity-60 ${
+                    recentAction === "news" ? "ring-2 ring-emerald-300" : ""
+                  }`}
+                >
+                  {actionLoading === "news" ? "툴 적용 중..." : "뉴스 추가"}
+                </button>
+                {recentAction === "news" && (
+                  <p className="mt-2 text-xs uppercase tracking-[0.35em] text-emerald-200 animate-pulse">
+                    뉴스 요청이 반영되었습니다.
+                  </p>
+                )}
+              </form>
             </div>
           </article>
         </section>
