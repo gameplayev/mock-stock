@@ -16,6 +16,7 @@ type HeroSectionProps = {
   trendTone: (value: number) => string;
   assetValue: number;
   depositPrincipal: number;
+  onRefresh: () => void;
 };
 
 export default function HeroSection({
@@ -31,6 +32,7 @@ export default function HeroSection({
   trendTone,
   assetValue,
   depositPrincipal,
+  onRefresh,
 }: HeroSectionProps) {
   return (
     <section className="rounded-3xl border border-white/5 bg-gradient-to-r from-slate-900/80 via-slate-900/60 to-slate-900/20 p-8 shadow-2xl shadow-emerald-500/5">
@@ -41,7 +43,13 @@ export default function HeroSection({
             {userName}님의 자산
           </h1>
         </div>
-
+        <button
+          type="button"
+          onClick={onRefresh}
+          className="rounded-2xl border border-white/20 px-4 py-2 text-xs font-semibold uppercase tracking-[0.3em] text-slate-200 transition hover:border-emerald-400 hover:text-white"
+        >
+          최신화
+        </button>
       </div>
       {/* 핵심 지표 카드: 현금/동기화/알림 */}
       <div className="mt-8 grid gap-3 text-sm text-slate-300 sm:grid-cols-1">
