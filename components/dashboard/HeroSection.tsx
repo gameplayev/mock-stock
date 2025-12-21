@@ -62,11 +62,6 @@ export default function HeroSection({
     [futuresOrders, now],
   );
 
-  useEffect(() => {
-    if (assetTab === "futures" && activeFutures.length === 0) {
-      setAssetTab("assets");
-    }
-  }, [activeFutures.length, assetTab]);
 
   const formatTimeLeft = (expiresAt: string) => {
     const remaining = Math.max(0, new Date(expiresAt).getTime() - now);
