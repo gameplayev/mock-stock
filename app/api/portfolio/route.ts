@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { verifyToken } from "@/lib/jwt";
 import { dbConnect } from "@/lib/mongodb";
-import User, { UserDocument } from "@/models/User";
+import User, { HoldingDocument, UserDocument } from "@/models/User";
 import { baseHoldings } from "@/lib/mockData";
 import { settleDepositIfMatured } from "@/lib/deposit";
 import { getMarketState } from "@/lib/marketControl";
