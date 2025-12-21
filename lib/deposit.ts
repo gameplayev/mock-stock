@@ -32,9 +32,16 @@ export const getDepositSnapshot = (
   };
 };
 
-export const settleDepositIfMatured = async (user: UserDocument & { save: () => Promise<void> }) => {
+export const settleDepositIfMatured = async (
+  user: UserDocument & { save: () => Promise<void> },
+  marketRunning = true,
+) => {
   if (!user.fixedDeposit) {
     return null;
+  }
+
+  if (!marketRunning) {
+    return getDepositSnapshot(user.fixedDeposit, getInterestRate());
   }
 
   const due = new Date(user.fixedDeposit.dueAt).getTime();

@@ -3,7 +3,7 @@ import { verifyToken } from "@/lib/jwt";
 import { dbConnect } from "@/lib/mongodb";
 import User, { UserDocument } from "@/models/User";
 import { DEPOSIT_DURATION_MS, getDepositSnapshot, settleDepositIfMatured } from "@/lib/deposit";
-import { getInterestRate } from "@/lib/marketControl";
+import { getInterestRate, getMarketState } from "@/lib/marketControl";
 
 export async function POST(request: NextRequest) {
   try {
@@ -25,7 +25,12 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ message: "관리자 계정은 예금을 이용할 수 없습니다." }, { status: 403 });
     }
 
-    await settleDepositIfMatured(user as UserDocument & { save: () => Promise<void> });
+    const marketRunning = getMarketState().running;
+    await settleDepositIfMatured(user as UserDocument & { save: () => Promise<void> }, marketRunning);
+
+    if (!marketRunning) {
+      return NextResponse.json({ message: "시장 점검 중에는 예금을 시작할 수 없습니다." }, { status: 409 });
+    }
 
     if (user.fixedDeposit) {
       return NextResponse.json({ message: "이미 예금이 진행 중이므로 잠시 기다려주세요." }, { status: 409 });

@@ -40,3 +40,14 @@ export type DepositInfo = {
   interestRate: number;
   interest: number;
 };
+
+export type FuturesOrder = {
+  symbol: string;
+  name: string;
+  shares: number;
+  leverage: number;
+  direction: "long" | "short";
+  entryPrice: number;
+  openedAt: string;
+  expiresAt: string;
+};

@@ -17,7 +17,10 @@ export async function GET(request: NextRequest) {
     }
 
     await dbConnect();
-    const users = await User.find({}, { name: 1, username: 1, holdings: 1, cashBalance: 1, role: 1, fixedDeposit: 1 }).lean() as {
+    const users = await User.find(
+      {},
+      { name: 1, username: 1, holdings: 1, cashBalance: 1, role: 1, fixedDeposit: 1, futuresOrders: 1 },
+    ).lean() as {
       _id: unknown;
       name?: string;
       username?: string;
@@ -25,6 +28,7 @@ export async function GET(request: NextRequest) {
       cashBalance?: number;
       role?: "user" | "admin";
       fixedDeposit?: UserDocument["fixedDeposit"];
+      futuresOrders?: UserDocument["futuresOrders"];
     }[];
 
     const sanitized = users.map((user) => ({
@@ -35,6 +39,7 @@ export async function GET(request: NextRequest) {
       cashBalance: user.cashBalance ?? 0,
       depositAmount: user.fixedDeposit?.amount ?? 0,
       role: user.role ?? "user",
+      futuresOrders: (user.futuresOrders ?? []).map((order) => ({ ...order })),
     }));
 
     return NextResponse.json({ users: sanitized });

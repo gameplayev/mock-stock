@@ -4,6 +4,7 @@ import { dbConnect } from "@/lib/mongodb";
 import User, { UserDocument } from "@/models/User";
 import { baseHoldings } from "@/lib/mockData";
 import { settleDepositIfMatured } from "@/lib/deposit";
+import { getMarketState } from "@/lib/marketControl";
 
 export async function GET(request: NextRequest) {
   try {
@@ -26,7 +27,11 @@ export async function GET(request: NextRequest) {
       return NextResponse.json({ message: "관리자 전용 페이지입니다." }, { status: 403 });
     }
 
-    const depositInfo = await settleDepositIfMatured(user as UserDocument & { save: () => Promise<void> });
+    const marketRunning = getMarketState().running;
+    const depositInfo = await settleDepositIfMatured(
+      user as UserDocument & { save: () => Promise<void> },
+      marketRunning,
+    );
 
     const now = Date.now();
     const activeHoldings = user.holdings?.length ? [...user.holdings] : baseHoldings.map((holding) => ({ ...holding }));
@@ -49,8 +54,37 @@ export async function GET(request: NextRequest) {
       return true;
     });
 
+    const activeFutures = user.futuresOrders?.length ? [...user.futuresOrders] : [];
+    const resolveMarketPrice = (symbol: string) => {
+      const holdingPrice = user.holdings?.find((holding) => holding.symbol === symbol)?.price;
+      if (typeof holdingPrice === "number" && holdingPrice > 0) {
+        return holdingPrice;
+      }
+      const basePrice = baseHoldings.find((holding) => holding.symbol === symbol)?.price;
+      return basePrice ?? 0;
+    };
+    const filteredFutures = activeFutures.filter((order) => {
+      if (!order.expiresAt) {
+        return true;
+      }
+      const expiresAt = new Date(order.expiresAt).getTime();
+      if (marketRunning && expiresAt <= now) {
+        const exitPrice = resolveMarketPrice(order.symbol);
+        if (exitPrice > 0) {
+          const priceDiff =
+            order.direction === "long" ? exitPrice - order.entryPrice : order.entryPrice - exitPrice;
+          const pnl = priceDiff * order.shares * order.leverage * 10;
+          user.cashBalance = Number((user.cashBalance + pnl).toFixed(2));
+        }
+        needsSave = true;
+        return false;
+      }
+      return true;
+    });
+
     if (needsSave) {
       user.holdings = filteredHoldings;
+      user.futuresOrders = filteredFutures;
       await user.save();
     }
 
@@ -62,6 +96,7 @@ export async function GET(request: NextRequest) {
       holdings: holdingsToReturn,
       cashBalance: user.cashBalance ?? 0,
       deposit: depositInfo,
+      futuresOrders: filteredFutures,
       role: user.role,
     });
   } catch (error) {

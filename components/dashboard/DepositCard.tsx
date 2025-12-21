@@ -10,6 +10,7 @@ type DepositCardProps = {
   onStart: (amount: number) => Promise<void>;
   currentInterestRate: number;
   onPortfolioRefresh: () => void;
+  marketRunning: boolean;
 };
 
 const formatCountdown = (milliseconds: number) => {
@@ -25,6 +26,7 @@ export default function DepositCard({
   onStart,
   currentInterestRate,
   onPortfolioRefresh,
+  marketRunning,
 }: DepositCardProps) {
   const [amount, setAmount] = useState("");
   const [ticker, setTicker] = useState(() => Date.now());
@@ -33,12 +35,12 @@ export default function DepositCard({
   const due = useMemo(() => (deposit ? new Date(deposit.dueAt) : null), [deposit]);
 
   useEffect(() => {
-    if (!due) {
+    if (!due || !marketRunning) {
       return undefined;
     }
     const timer = setInterval(() => setTicker(Date.now()), 1000);
     return () => clearInterval(timer);
-  }, [due]);
+  }, [due, marketRunning]);
   const timeLeft = due ? Math.max(0, due.getTime() - ticker) : 0;
 
   const handleSubmit = async (event: FormEvent<HTMLFormElement>) => {
@@ -53,6 +55,9 @@ export default function DepositCard({
   useEffect(() => {
     if (!deposit) {
       maturedRef.current = false;
+      return;
+    }
+    if (!marketRunning) {
       return;
     }
     if (timeLeft <= 0 && !maturedRef.current) {
@@ -95,14 +100,15 @@ export default function DepositCard({
               onChange={(event) => setAmount(event.target.value)}
               className="mt-1 w-full rounded-2xl border border-white/10 bg-slate-900/60 px-3 py-2 text-sm"
               placeholder="예: 5000"
+              disabled={!marketRunning}
             />
           </div>
           <button
             type="submit"
-            disabled={loading}
+            disabled={loading || !marketRunning}
             className="w-full rounded-2xl bg-emerald-400/90 px-4 py-2 text-sm font-semibold text-slate-950 transition hover:bg-emerald-300 disabled:opacity-60"
           >
-            {loading ? "요청 중..." : "예금 시작 (5분)"}
+            {!marketRunning ? "시장 점검 중" : loading ? "요청 중..." : "예금 시작 (5분)"}
           </button>
         </form>
       )}

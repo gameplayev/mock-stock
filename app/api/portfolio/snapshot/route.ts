@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { verifyToken } from "@/lib/jwt";
 import { dbConnect } from "@/lib/mongodb";
 import User, { HoldingDocument } from "@/models/User";
+import { baseHoldings } from "@/lib/mockData";
 
 type SnapshotHolding = {
   symbol: string;
@@ -35,16 +36,30 @@ export async function POST(request: NextRequest) {
         .filter((holding) => typeof holding.symbol === "string" && typeof holding.price === "number")
         .map((holding) => [holding.symbol, holding]),
     );
+    const baseLookup = new Map(baseHoldings.map((holding) => [holding.symbol, holding]));
 
     let updated = 0;
-    user.holdings.forEach((holding: HoldingDocument) => {
-      const snapshot = snapshotMap.get(holding.symbol);
-      if (!snapshot) {
-        return;
-      }
-      holding.price = Number(snapshot.price.toFixed(2));
-      if (typeof snapshot.change === "number") {
-        holding.change = Number(snapshot.change.toFixed(2));
+    const holdingsBySymbol = new Map(user.holdings.map((holding) => [holding.symbol, holding]));
+
+    snapshotMap.forEach((snapshot, symbol) => {
+      const target = holdingsBySymbol.get(symbol);
+      if (target) {
+        target.price = Number(snapshot.price.toFixed(2));
+        if (typeof snapshot.change === "number") {
+          target.change = Number(snapshot.change.toFixed(2));
+        }
+      } else {
+        const base = baseLookup.get(symbol);
+        user.holdings.push({
+          symbol,
+          name: base?.name ?? symbol,
+          shares: 0,
+          avgCost: base?.avgCost ?? 0,
+          price: Number(snapshot.price.toFixed(2)),
+          change: typeof snapshot.change === "number" ? Number(snapshot.change.toFixed(2)) : 0,
+          allocation: base?.allocation ?? 0,
+          direction: base?.direction ?? "long",
+        } as HoldingDocument);
       }
       updated += 1;
     });

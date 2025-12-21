@@ -1,5 +1,5 @@
 import { Schema, model, models } from "mongoose";
-import type { Holding } from "@/types/portfolio";
+import type { FuturesOrder, Holding } from "@/types/portfolio";
 
 export type HoldingDocument = Holding & { _id?: Schema.Types.ObjectId };
 
@@ -11,6 +11,7 @@ export interface UserDocument {
   holdings: HoldingDocument[];
   cashBalance: number;
   role: "user" | "admin";
+  futuresOrders?: FuturesOrder[];
   fixedDeposit?: {
     amount: number;
     startedAt: Date;
@@ -45,6 +46,20 @@ const DepositSchema = new Schema(
   { _id: false },
 );
 
+const FuturesOrderSchema = new Schema(
+  {
+    symbol: String,
+    name: String,
+    shares: Number,
+    leverage: Number,
+    direction: String,
+    entryPrice: Number,
+    openedAt: String,
+    expiresAt: String,
+  },
+  { _id: false },
+);
+
 const UserSchema = new Schema<UserDocument>(
   {
     name: { type: String, required: true },
@@ -53,6 +68,7 @@ const UserSchema = new Schema<UserDocument>(
     holdings: { type: [HoldingSchema], default: [] },
     cashBalance: { type: Number, default: 50000 },
     role: { type: String, enum: ["user", "admin"], default: "user" },
+    futuresOrders: { type: [FuturesOrderSchema], default: [] },
     fixedDeposit: { type: DepositSchema, default: undefined },
   },
   { timestamps: true },

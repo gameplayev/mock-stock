@@ -2,9 +2,10 @@
 
 import { FormEvent, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
-import type { Holding } from "@/types/portfolio";
+import type { FuturesOrder, Holding } from "@/types/portfolio";
 import { formatCurrency } from "@/lib/numberFormat";
 import type { MarketState } from "@/lib/marketControl";
+import { baseHoldings } from "@/lib/mockData";
 
 const STOCK_SYMBOLS = ["NVDA", "AAPL", "TSLA", "AMZN", "TSM", "SPACEX", "META", "AMD", "INTC", "NFLX", "MSFT", "GOOGL"];
 const ADMIN_REFRESH_KEY = "market-admin-refresh";
@@ -17,6 +18,7 @@ type AdminUser = {
   holdings: Holding[];
   role: "user" | "admin";
   depositAmount: number;
+  futuresOrders: FuturesOrder[];
 };
 
 type AlertState = {
@@ -57,16 +59,36 @@ export default function AdminPage() {
     }
   }, []);
 
+  const priceLookup = useMemo(() => {
+    const lookup: Record<string, number> = {};
+    baseHoldings.forEach((holding) => {
+      lookup[holding.symbol] = holding.price;
+    });
+    return lookup;
+  }, []);
+
   const scoreboard = useMemo(() => {
     return [...users]
       .filter((user) => user.role !== "admin")
       .map((user) => {
         const holdingsValue = user.holdings.reduce((sum, holding) => sum + holding.price * holding.shares, 0);
-        const totalValue = holdingsValue + user.cashBalance + user.depositAmount;
-        return { ...user, holdingsValue, totalValue };
+        const futuresPnL = (user.futuresOrders ?? []).reduce((sum, order) => {
+          const currentPrice =
+            user.holdings.find((holding) => holding.symbol === order.symbol)?.price ??
+            priceLookup[order.symbol] ??
+            0;
+          if (currentPrice <= 0) {
+            return sum;
+          }
+          const diff =
+            order.direction === "long" ? currentPrice - order.entryPrice : order.entryPrice - currentPrice;
+          return sum + diff * order.shares * order.leverage * 10;
+        }, 0);
+        const totalValue = holdingsValue + user.cashBalance + user.depositAmount + futuresPnL;
+        return { ...user, holdingsValue, futuresPnL, totalValue };
       })
       .sort((a, b) => b.totalValue - a.totalValue);
-  }, [users]);
+  }, [users, priceLookup]);
 
   const refreshUsers = useCallback(async (authToken: string) => {
     const response = await fetch("/api/admin/users", {
@@ -470,7 +492,7 @@ export default function AdminPage() {
                     <p className="text-xs text-slate-400">아이디 {entry.username}</p>
                     <p className="text-xs text-slate-400">
                       주식 {formatCurrency(entry.holdingsValue, { maximumFractionDigits: 0 })} · 현금 {formatCurrency(entry.cashBalance)} · 예금{" "}
-                      {formatCurrency(entry.depositAmount)}
+                      {formatCurrency(entry.depositAmount)} · 선물 {formatCurrency(entry.futuresPnL)}
                     </p>
                   </div>
                   <p className="text-sm font-semibold text-emerald-200">
@@ -583,7 +605,19 @@ export default function AdminPage() {
           <div className="space-y-4">
             {users.map((user) => {
               const holdingsValue = user.holdings.reduce((sum, holding) => sum + holding.price * holding.shares, 0);
-              const totalAsset = holdingsValue + user.cashBalance + user.depositAmount;
+              const futuresPnL = (user.futuresOrders ?? []).reduce((sum, order) => {
+                const currentPrice =
+                  user.holdings.find((holding) => holding.symbol === order.symbol)?.price ??
+                  priceLookup[order.symbol] ??
+                  0;
+                if (currentPrice <= 0) {
+                  return sum;
+                }
+                const diff =
+                  order.direction === "long" ? currentPrice - order.entryPrice : order.entryPrice - currentPrice;
+                return sum + diff * order.shares * order.leverage * 10;
+              }, 0);
+              const totalAsset = holdingsValue + user.cashBalance + user.depositAmount + futuresPnL;
               return (
                 <article key={user.id} className="rounded-3xl border border-white/5 bg-white/[0.02] p-4 shadow-xl shadow-black/30">
                   <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
@@ -597,7 +631,9 @@ export default function AdminPage() {
                       <p className="text-lg font-semibold text-white">
                         {formatCurrency(totalAsset, { maximumFractionDigits: 0 })}
                       </p>
-                      <p className="text-xs text-slate-400">예금 원금 {formatCurrency(user.depositAmount)}</p>
+                      <p className="text-xs text-slate-400">
+                        예금 원금 {formatCurrency(user.depositAmount)} · 선물 {formatCurrency(futuresPnL)}
+                      </p>
                     </div>
                   </div>
                   <div className="mt-4 grid gap-3 md:grid-cols-2">

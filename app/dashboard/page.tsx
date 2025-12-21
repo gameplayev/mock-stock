@@ -3,7 +3,7 @@
 import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import DashboardShell from "@/components/dashboard/DashboardShell";
-import type { DepositInfo, Holding } from "@/types/portfolio";
+import type { DepositInfo, FuturesOrder, Holding } from "@/types/portfolio";
 import { baseHoldings } from "@/lib/mockData";
 
 type PortfolioResponse = {
@@ -12,6 +12,7 @@ type PortfolioResponse = {
   holdings: Holding[];
   cashBalance: number;
   deposit?: DepositInfo | null;
+  futuresOrders?: FuturesOrder[];
   role: "user" | "admin";
 };
 
@@ -26,6 +27,7 @@ export default function DashboardPage() {
   const [accountLoading, setAccountLoading] = useState(false);
   const [depositInfo, setDepositInfo] = useState<DepositInfo | null>(null);
   const [depositLoading, setDepositLoading] = useState(false);
+  const [futuresOrders, setFuturesOrders] = useState<FuturesOrder[]>([]);
 
   const ensureToken = () => {
     const stored = typeof window !== "undefined" ? localStorage.getItem("summit-token") : null;
@@ -58,6 +60,7 @@ export default function DashboardPage() {
     setUserName(data.name);
     setCashBalance(data.cashBalance ?? 0);
     setDepositInfo(data.deposit ?? null);
+    setFuturesOrders(data.futuresOrders ?? []);
   };
 
   const bootstrap = async () => {
@@ -82,6 +85,10 @@ export default function DashboardPage() {
   const handleRefresh = async () => {
     if (!token) return;
     await fetchPortfolio(token);
+  };
+
+  const handleFuturesOrdersUpdate = (orders: FuturesOrder[]) => {
+    setFuturesOrders(orders);
   };
 
   const handleLogout = () => {
@@ -161,8 +168,10 @@ export default function DashboardPage() {
       cashBalance={cashBalance}
       token={token}
       depositInfo={depositInfo}
+      futuresOrders={futuresOrders}
       onStartDeposit={handleStartDeposit}
       onPortfolioRefresh={handleRefresh}
+      onFuturesOrdersUpdate={handleFuturesOrdersUpdate}
       onLogout={handleLogout}
       onDeleteAccount={handleDeleteAccount}
       accountLoading={accountLoading}

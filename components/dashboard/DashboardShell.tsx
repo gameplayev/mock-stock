@@ -1,9 +1,9 @@
 "use client";
 
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useMockMarket } from "@/hooks/useMockMarket";
 import { formatCurrency, formatPercent, trendTone } from "@/lib/numberFormat";
-import type { DepositInfo, Holding } from "@/types/portfolio";
+import type { DepositInfo, FuturesOrder, Holding } from "@/types/portfolio";
 import HeroSection from "@/components/dashboard/HeroSection";
 import HoldingsTable from "@/components/dashboard/HoldingsTable";
 import NewsFeed from "@/components/dashboard/NewsFeed";
@@ -12,6 +12,7 @@ import AccountActions from "@/components/dashboard/AccountActions";
 import InterestRateCard from "@/components/dashboard/InterestRateCard";
 import DepositCard from "@/components/dashboard/DepositCard";
 import StockChartPanel from "@/components/dashboard/StockChartPanel";
+import { baseHoldings } from "@/lib/mockData";
 
 type DashboardShellProps = {
   initialHoldings: Holding[];
@@ -19,9 +20,11 @@ type DashboardShellProps = {
   cashBalance: number;
   token: string;
   depositInfo?: DepositInfo | null;
+  futuresOrders: FuturesOrder[];
   depositLoading: boolean;
   onStartDeposit: (amount: number) => Promise<void>;
   onPortfolioRefresh: () => void;
+  onFuturesOrdersUpdate: (orders: FuturesOrder[]) => void;
   onLogout: () => void;
   onDeleteAccount: () => Promise<void>;
   accountLoading: boolean;
@@ -34,9 +37,11 @@ export default function DashboardShell({
   cashBalance,
   token,
   depositInfo,
+  futuresOrders,
   depositLoading,
   onStartDeposit,
   onPortfolioRefresh,
+  onFuturesOrdersUpdate,
   onLogout,
   onDeleteAccount,
   accountLoading,
@@ -48,7 +53,33 @@ export default function DashboardShell({
 
   const interestRateLabel = `${(interestRate * 100).toFixed(2)}%`;
   const depositPrincipal = depositInfo?.amount ?? 0;
-  const totalAssets = metrics.portfolioValue + cashBalance + depositPrincipal;
+  const priceLookup = useMemo(() => {
+    const lookup: Record<string, number> = {};
+    holdings.forEach((holding) => {
+      lookup[holding.symbol] = holding.price;
+    });
+    baseHoldings.forEach((holding) => {
+      if (lookup[holding.symbol] === undefined) {
+        lookup[holding.symbol] = holding.price;
+      }
+    });
+    return lookup;
+  }, [holdings]);
+
+  const futuresPnL = useMemo(() => {
+    const total = futuresOrders.reduce((sum, order) => {
+      const currentPrice = priceLookup[order.symbol] ?? 0;
+      if (currentPrice <= 0) {
+        return sum;
+      }
+      const diff =
+        order.direction === "long" ? currentPrice - order.entryPrice : order.entryPrice - currentPrice;
+      return sum + diff * order.shares * order.leverage * 10;
+    }, 0);
+    return Number(total.toFixed(2));
+  }, [futuresOrders, priceLookup]);
+
+  const totalAssets = metrics.portfolioValue + cashBalance + depositPrincipal + futuresPnL;
   const [adminRefreshNote, setAdminRefreshNote] = useState<string | null>(null);
   const notifyAdminRefresh = useCallback(
     (message = "관리자 요청이 반영되었습니다.") => {
@@ -175,11 +206,14 @@ export default function DashboardShell({
           impactLog={impactLog}
           cashBalance={cashBalance}
           holdings={holdingsSorted}
+          futuresOrders={futuresOrders}
           formatCurrency={formatCurrency}
           formatPercent={formatPercent}
           trendTone={trendTone}
           assetValue={totalAssets}
           depositPrincipal={depositPrincipal}
+          futuresPnL={futuresPnL}
+          marketRunning={marketRunning}
           onRefresh={handleManualRefresh}
         />
 
@@ -197,6 +231,7 @@ export default function DashboardShell({
               token={token}
               cashBalance={cashBalance}
               onSuccess={onPortfolioRefresh}
+              onFuturesOrdersUpdate={onFuturesOrdersUpdate}
               marketRunning={marketRunning}
             />
             <AccountActions onLogout={onLogout} onDelete={onDeleteAccount} loading={accountLoading} />
@@ -211,6 +246,7 @@ export default function DashboardShell({
             onStart={onStartDeposit}
             currentInterestRate={interestRate}
             onPortfolioRefresh={onPortfolioRefresh}
+            marketRunning={marketRunning}
           />
         </section>
         {adminRefreshNote && (
