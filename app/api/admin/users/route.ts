@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { verifyToken } from "@/lib/jwt";
 import { dbConnect } from "@/lib/mongodb";
-import User, { HoldingDocument } from "@/models/User";
+import User, { HoldingDocument, UserDocument } from "@/models/User";
 
 export async function GET(request: NextRequest) {
   try {
@@ -17,13 +17,14 @@ export async function GET(request: NextRequest) {
     }
 
     await dbConnect();
-    const users = await User.find({}, { name: 1, username: 1, holdings: 1, cashBalance: 1, role: 1 }).lean() as {
+    const users = await User.find({}, { name: 1, username: 1, holdings: 1, cashBalance: 1, role: 1, fixedDeposit: 1 }).lean() as {
       _id: unknown;
       name?: string;
       username?: string;
       holdings?: HoldingDocument[];
       cashBalance?: number;
       role?: "user" | "admin";
+      fixedDeposit?: UserDocument["fixedDeposit"];
     }[];
 
     const sanitized = users.map((user) => ({
@@ -32,6 +33,7 @@ export async function GET(request: NextRequest) {
       username: user.username ?? "unknown",
       holdings: (user.holdings ?? []).map((holding) => ({ ...holding })),
       cashBalance: user.cashBalance ?? 0,
+      depositAmount: user.fixedDeposit?.amount ?? 0,
       role: user.role ?? "user",
     }));
 

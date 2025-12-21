@@ -58,6 +58,44 @@ export default function DashboardShell({
     [onPortfolioRefresh],
   );
 
+  const syncHoldingsSnapshot = useCallback(async () => {
+    if (!token) {
+      return;
+    }
+    try {
+      await fetch("/api/portfolio/snapshot", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${token}`,
+        },
+        body: JSON.stringify({
+          holdings: holdings.map((holding) => ({
+            symbol: holding.symbol,
+            price: holding.price,
+            change: holding.change,
+          })),
+        }),
+      });
+    } catch (error) {
+      console.error("[PORTFOLIO][SNAPSHOT]", error);
+    }
+  }, [holdings, token]);
+
+  const handleManualRefresh = useCallback(async () => {
+    await syncHoldingsSnapshot();
+    onPortfolioRefresh();
+  }, [onPortfolioRefresh, syncHoldingsSnapshot]);
+
+  useEffect(() => {
+    if (!token) {
+      return undefined;
+    }
+    syncHoldingsSnapshot();
+    const interval = setInterval(syncHoldingsSnapshot, 8000);
+    return () => clearInterval(interval);
+  }, [syncHoldingsSnapshot, token]);
+
   useEffect(() => {
     if (!adminRefreshNote) {
       return undefined;
@@ -142,6 +180,7 @@ export default function DashboardShell({
           trendTone={trendTone}
           assetValue={totalAssets}
           depositPrincipal={depositPrincipal}
+          onRefresh={handleManualRefresh}
         />
 
         {!marketRunning && (

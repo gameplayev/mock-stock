@@ -47,19 +47,24 @@ export default function HeroSection({
       <div className="mt-8 grid gap-3 text-sm text-slate-300 sm:grid-cols-1">
         <div className="rounded-2xl border border-white/10 bg-white/5 px-4 py-3">
           <p className="text-xs uppercase tracking-[0.35em] text-emerald-200">현금</p>
-          <div className="mt-2 flex items-end gap-3">
-            <p className="text-2xl font-semibold text-white">${cashBalance.toLocaleString()}</p>
-            {depositPrincipal > 0 ? (
-              <span
-                className={`text-xs font-semibold ${
-                  cashBalance >= depositPrincipal ? "text-emerald-200" : "text-rose-300"
-                }`}
-              >
-                초기 자금 대비 {formatPercent((cashBalance - depositPrincipal) / depositPrincipal)}
-              </span>
-            ) : (
-              <span className="text-xs text-slate-400">초기 자금 정보 없음</span>
-            )}
+          <div className="mt-2 flex items-end justify-between gap-6">
+            <div className="space-y-1">
+              <p className="text-2xl font-semibold text-white">{formatCurrency(cashBalance)}</p>
+              {depositPrincipal > 0 && (
+                <span
+                  className={`text-xs font-semibold ${
+                    cashBalance >= depositPrincipal ? "text-emerald-200" : "text-rose-300"
+                  }`}
+                >
+                  초기 자금 대비 {formatPercent((cashBalance - depositPrincipal) / depositPrincipal)}
+                </span>
+              )}
+            </div>
+            <div className="text-right">
+              <p className="text-xs uppercase tracking-[0.35em] text-slate-400">총 자산</p>
+              <p className="text-lg font-semibold text-emerald-200">{formatCurrency(assetValue)}</p>
+              <p className="text-xs text-slate-500">주식 매도 + 현금 + 예금 원금</p>
+            </div>
           </div>
           <p className="text-xs text-slate-400">즉시 집행 가능</p>
         </div>

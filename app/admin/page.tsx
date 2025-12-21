@@ -16,6 +16,7 @@ type AdminUser = {
   cashBalance: number;
   holdings: Holding[];
   role: "user" | "admin";
+  depositAmount: number;
 };
 
 type AlertState = {
@@ -42,6 +43,7 @@ export default function AdminPage() {
   const [actionLoading, setActionLoading] = useState<string | null>(null);
   const [marketState, setMarketState] = useState<MarketState | null>(null);
   const [recentAction, setRecentAction] = useState<string | null>(null);
+  const [latestHoldingsSale, setLatestHoldingsSale] = useState(0);
   const fetchMarketState = useCallback(async () => {
     try {
       const response = await fetch("/api/market/state");
@@ -60,7 +62,7 @@ export default function AdminPage() {
       .filter((user) => user.role !== "admin")
       .map((user) => {
         const holdingsValue = user.holdings.reduce((sum, holding) => sum + holding.price * holding.shares, 0);
-        const totalValue = holdingsValue + user.cashBalance;
+        const totalValue = holdingsValue + user.cashBalance + user.depositAmount;
         return { ...user, holdingsValue, totalValue };
       })
       .sort((a, b) => b.totalValue - a.totalValue);
@@ -81,20 +83,59 @@ export default function AdminPage() {
       cashMap[user.id] = user.cashBalance.toFixed(2);
     });
     setCashInputs(cashMap);
+    const totalHoldingsSale = fetchedUsers
+      .filter((user) => user.role !== "admin")
+      .reduce(
+        (sum, user) =>
+          sum +
+          user.holdings.reduce((holdingSum, holding) => holdingSum + holding.price * holding.shares, 0),
+        0,
+      );
+    setLatestHoldingsSale(totalHoldingsSale);
   }, []);
 
   const broadcastChannel = useRef<BroadcastChannel | null>(null);
 
+  const triggerUsersRefresh = useCallback(async () => {
+    if (!token) {
+      return;
+    }
+    try {
+      await refreshUsers(token);
+    } catch (error) {
+      console.error("[ADMIN][REFRESH]", error);
+    }
+  }, [refreshUsers, token]);
+
   useEffect(() => {
-    if (typeof window === "undefined") {
+    if (typeof window === "undefined" || !token) {
       return undefined;
     }
-    broadcastChannel.current = new BroadcastChannel("market-admin-refresh");
-    return () => {
-      broadcastChannel.current?.close();
-      broadcastChannel.current = null;
+    const handleExternalRefresh = () => {
+      triggerUsersRefresh();
     };
-  }, []);
+    const handleStorage = (event: StorageEvent) => {
+      if (event.key === ADMIN_REFRESH_KEY) {
+        handleExternalRefresh();
+      }
+    };
+
+    const channel = new BroadcastChannel("market-admin-refresh");
+    broadcastChannel.current = channel;
+    channel.addEventListener("message", handleExternalRefresh);
+    window.addEventListener("market-admin-refresh", handleExternalRefresh);
+    window.addEventListener("storage", handleStorage);
+    const interval = setInterval(handleExternalRefresh, 6000);
+
+    return () => {
+      channel.removeEventListener("message", handleExternalRefresh);
+      channel.close();
+      broadcastChannel.current = null;
+      window.removeEventListener("market-admin-refresh", handleExternalRefresh);
+      window.removeEventListener("storage", handleStorage);
+      clearInterval(interval);
+    };
+  }, [token, triggerUsersRefresh]);
 
   const broadcastAdminRefresh = useCallback((message: string, data?: unknown) => {
     // Save a timestamped payload so storage events always fire in other tabs,
@@ -309,6 +350,20 @@ export default function AdminPage() {
     );
   }
 
+  const handleRankRefresh = async () => {
+    if (!token) return;
+    setActionLoading("rank-refresh");
+    setStatus(null);
+    try {
+      await refreshUsers(token);
+      setStatus({ type: "success", message: "자산 순위가 최신화되었습니다." });
+    } catch (error) {
+      setStatus({ type: "error", message: error instanceof Error ? error.message : "오류가 발생했습니다." });
+    } finally {
+      setActionLoading(null);
+    }
+  };
+
   return (
     <main className="min-h-screen bg-slate-950 text-white">
       <div className="mx-auto max-w-6xl space-y-8 px-4 py-10">
@@ -386,7 +441,25 @@ export default function AdminPage() {
           <article className="rounded-3xl border border-white/10 bg-white/[0.03] p-6 shadow-xl shadow-black/40">
             <div className="flex items-center justify-between">
               <h2 className="text-lg font-semibold text-white">자산 순위</h2>
-              <span className="text-xs text-slate-400">내림차순</span>
+              <div className="flex flex-col items-end gap-2">
+                <div className="flex items-center gap-3">
+                  <span className="text-xs text-slate-400">내림차순</span>
+                  <button
+                    type="button"
+                    onClick={handleRankRefresh}
+                    disabled={actionLoading === "rank-refresh"}
+                    className="rounded-2xl border border-white/10 px-3 py-1 text-xs font-semibold uppercase tracking-[0.3em] text-slate-300 transition hover:border-emerald-400 disabled:border-white/10 disabled:text-slate-500"
+                  >
+                    {actionLoading === "rank-refresh" ? "갱신 중..." : "최신화"}
+                  </button>
+                </div>
+                <div className="text-xs text-slate-400 text-right">
+                  <p>총 자산 = 주식 매도 + 현금 + 예금</p>
+                  <p>
+                    현재 주가 기준 주식 매도 {formatCurrency(latestHoldingsSale, { maximumFractionDigits: 0 })}
+                  </p>
+                </div>
+              </div>
             </div>
             <ol className="mt-4 space-y-3 text-sm">
               {scoreboard.slice(0, 5).map((entry, index) => (
@@ -396,8 +469,8 @@ export default function AdminPage() {
                     <p className="text-base font-semibold text-white">{entry.name}</p>
                     <p className="text-xs text-slate-400">아이디 {entry.username}</p>
                     <p className="text-xs text-slate-400">
-                      주식 {formatCurrency(entry.holdingsValue, { maximumFractionDigits: 0 })} · 현금 $
-                      {entry.cashBalance.toLocaleString()}
+                      주식 {formatCurrency(entry.holdingsValue, { maximumFractionDigits: 0 })} · 현금 {formatCurrency(entry.cashBalance)} · 예금{" "}
+                      {formatCurrency(entry.depositAmount)}
                     </p>
                   </div>
                   <p className="text-sm font-semibold text-emerald-200">
@@ -508,59 +581,61 @@ export default function AdminPage() {
               </button>
             </div>
           <div className="space-y-4">
-            {users.map((user) => (
-              <article key={user.id} className="rounded-3xl border border-white/5 bg-white/[0.02] p-4 shadow-xl shadow-black/30">
-                <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
-                  <div>
-                    <p className="text-sm text-slate-400">ID: {user.id}</p>
-                    <p className="text-lg font-semibold text-white">{user.name}</p>
-                    <p className="text-sm text-slate-400">아이디: {user.username}</p>
+            {users.map((user) => {
+              const holdingsValue = user.holdings.reduce((sum, holding) => sum + holding.price * holding.shares, 0);
+              const totalAsset = holdingsValue + user.cashBalance + user.depositAmount;
+              return (
+                <article key={user.id} className="rounded-3xl border border-white/5 bg-white/[0.02] p-4 shadow-xl shadow-black/30">
+                  <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+                    <div>
+                      <p className="text-sm text-slate-400">ID: {user.id}</p>
+                      <p className="text-lg font-semibold text-white">{user.name}</p>
+                      <p className="text-sm text-slate-400">아이디: {user.username}</p>
+                    </div>
+                    <div className="space-y-1 text-right">
+                      <p className="text-xs uppercase tracking-[0.3em] text-emerald-200">총 자산</p>
+                      <p className="text-lg font-semibold text-white">
+                        {formatCurrency(totalAsset, { maximumFractionDigits: 0 })}
+                      </p>
+                      <p className="text-xs text-slate-400">예금 원금 {formatCurrency(user.depositAmount)}</p>
+                    </div>
                   </div>
-                  <div className="space-y-1 text-right">
-                    <p className="text-xs uppercase tracking-[0.3em] text-emerald-200">총 자산</p>
-                    <p className="text-lg font-semibold text-white">
-                      {formatCurrency(
-                        user.holdings.reduce((sum, holding) => sum + holding.price * holding.shares, 0) + user.cashBalance,
-                        { maximumFractionDigits: 0 },
-                      )}
-                    </p>
-                  </div>
-                </div>
-                <div className="mt-4 grid gap-3 md:grid-cols-2">
-                  <div>
-                    <label className="text-xs uppercase tracking-[0.3em] text-slate-400">현금</label>
-                    <div className="mt-2 flex gap-2">
-                      <input
-                        type="number"
-                        value={cashInputs[user.id] ?? user.cashBalance.toFixed(2)}
-                        onChange={(event) => setCashInputs((prev) => ({ ...prev, [user.id]: event.target.value }))}
-                        className="w-full rounded-2xl border border-white/10 bg-slate-900/60 px-3 py-2 text-sm"
-                      />
+                  <div className="mt-4 grid gap-3 md:grid-cols-2">
+                    <div>
+                      <label className="text-xs uppercase tracking-[0.3em] text-slate-400">현금</label>
+                      <div className="mt-2 flex gap-2">
+                        <input
+                          type="number"
+                          value={cashInputs[user.id] ?? user.cashBalance.toFixed(2)}
+                          onChange={(event) => setCashInputs((prev) => ({ ...prev, [user.id]: event.target.value }))}
+                          className="w-full rounded-2xl border border-white/10 bg-slate-900/60 px-3 py-2 text-sm"
+                        />
+                        <button
+                          onClick={() => handleCashUpdate(user.id)}
+                          disabled={actionLoading === `cash-${user.id}`}
+                          className="rounded-2xl border border-emerald-400/40 px-4 py-2 text-sm font-semibold text-emerald-200 transition hover:border-emerald-200 disabled:opacity-60"
+                        >
+                          반영
+                        </button>
+                      </div>
+                    </div>
+                    <div className="space-y-1 text-sm">
+                      <p className="text-xs uppercase tracking-[0.3em] text-slate-400">보유 종목</p>
+                      <p className="text-sm text-slate-300">
+                        {user.holdings.length}개 · 평균 {user.holdings.reduce((sum, holding) => sum + holding.shares, 0)}주
+                      </p>
                       <button
-                        onClick={() => handleCashUpdate(user.id)}
-                        disabled={actionLoading === `cash-${user.id}`}
-                        className="rounded-2xl border border-emerald-400/40 px-4 py-2 text-sm font-semibold text-emerald-200 transition hover:border-emerald-200 disabled:opacity-60"
+                        onClick={() => handleDeleteUser(user.id)}
+                        disabled={actionLoading === `delete-${user.id}`}
+                        className="mt-2 w-full rounded-2xl border border-rose-500/30 px-4 py-2 text-sm font-semibold text-rose-200 transition hover:border-rose-400 disabled:opacity-60"
                       >
-                        반영
+                        삭제
                       </button>
                     </div>
                   </div>
-                  <div className="space-y-1 text-sm">
-                    <p className="text-xs uppercase tracking-[0.3em] text-slate-400">보유 종목</p>
-                    <p className="text-sm text-slate-300">
-                      {user.holdings.length}개 · 평균 {user.holdings.reduce((sum, holding) => sum + holding.shares, 0)}주
-                    </p>
-                    <button
-                      onClick={() => handleDeleteUser(user.id)}
-                      disabled={actionLoading === `delete-${user.id}`}
-                      className="mt-2 w-full rounded-2xl border border-rose-500/30 px-4 py-2 text-sm font-semibold text-rose-200 transition hover:border-rose-400 disabled:opacity-60"
-                    >
-                      삭제
-                    </button>
-                  </div>
-                </div>
-              </article>
-            ))}
+                </article>
+              );
+            })}
           </div>
         </section>
       </div>
