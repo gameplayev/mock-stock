@@ -6,7 +6,6 @@ import { formatCurrency, formatPercent, trendTone } from "@/lib/numberFormat";
 import type { DepositInfo, Holding } from "@/types/portfolio";
 import HeroSection from "@/components/dashboard/HeroSection";
 import HoldingsTable from "@/components/dashboard/HoldingsTable";
-import MarketPulseCard from "@/components/dashboard/MarketPulseCard";
 import NewsFeed from "@/components/dashboard/NewsFeed";
 import InvestPanel from "@/components/dashboard/InvestPanel";
 import AccountActions from "@/components/dashboard/AccountActions";
@@ -42,13 +41,14 @@ export default function DashboardShell({
   onDeleteAccount,
   accountLoading,
 }: DashboardShellProps) {
-  const { holdings, marketPulse, news, lastUpdated, impactLog, metrics } = useMockMarket(initialHoldings);
+  const { holdings, news, lastUpdated, impactLog, metrics, marketRunning, interestRate } =
+    useMockMarket(initialHoldings);
   // 보유 가치 기준 상위 4개를 추려 히어로 카드에 노출
   const holdingsPreview = [...holdings]
     .sort((a, b) => b.price * b.shares - a.price * a.shares)
     .slice(0, 4);
 
-  const interestRate = "4.25%";
+  const interestRateLabel = `${(interestRate * 100).toFixed(2)}%`;
   const [selectedSymbol, setSelectedSymbol] = useState<string>(holdings[0]?.symbol ?? "");
   const fallbackSymbol = holdings[0]?.symbol ?? "";
   const normalizedSymbol = holdings.find((holding) => holding.symbol === selectedSymbol)
@@ -75,26 +75,37 @@ export default function DashboardShell({
           depositPrincipal={depositPrincipal}
         />
 
+        {!marketRunning && (
+          <div className="rounded-2xl border border-white/20 bg-rose-500/10 p-4 text-sm text-rose-200">
+            현재 시장이 점검 중이므로 매수/매도 주문이 일시 중단되었습니다.
+          </div>
+        )}
+
         <section className="space-y-6">
           <StockChartPanel holdings={holdings} selectedSymbol={normalizedSymbol} onSymbolChange={setSelectedSymbol} />
           <div className="grid gap-6 md:grid-cols-2">
-            <InvestPanel holdings={holdings} token={token} cashBalance={cashBalance} onSuccess={onPortfolioRefresh} />
+            <InvestPanel
+              holdings={holdings}
+              token={token}
+              cashBalance={cashBalance}
+              onSuccess={onPortfolioRefresh}
+              marketRunning={marketRunning}
+            />
             <AccountActions onLogout={onLogout} onDelete={onDeleteAccount} loading={accountLoading} />
           </div>
         </section>
-        <section className="grid gap-6 lg:grid-cols-3">
-          <InterestRateCard rate={interestRate} />
+        <section className="grid gap-6 lg:grid-cols-2">
+          <InterestRateCard rate={interestRateLabel} />
           <DepositCard deposit={depositInfo} loading={depositLoading} onStart={onStartDeposit} />
-          <MarketPulseCard marketPulse={marketPulse} formatPercent={formatPercent} trendTone={trendTone} />
+        </section>
+
+        <section className="space-y-6">
+          <HoldingsTable holdings={holdings} formatCurrency={formatCurrency} formatPercent={formatPercent} />
         </section>
 
         <section className="grid gap-6 lg:grid-cols-[2fr,1fr]">
           <NewsFeed news={news} formatPercent={formatPercent} />
           <div className="hidden lg:block" aria-hidden="true" />
-        </section>
-
-        <section className="space-y-6">
-          <HoldingsTable holdings={holdings} formatCurrency={formatCurrency} formatPercent={formatPercent} />
         </section>
       </div>
     </main>

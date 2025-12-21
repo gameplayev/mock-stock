@@ -1,7 +1,8 @@
 "use client";
 
-import { FormEvent, useCallback, useEffect, useMemo, useState } from "react";
+import { FormEvent, useEffect, useMemo, useState } from "react";
 import type { Holding } from "@/types/portfolio";
+import { baseHoldings } from "@/lib/mockData";
 import { formatCurrency } from "@/lib/numberFormat";
 
 type InvestPanelProps = {
@@ -9,83 +10,79 @@ type InvestPanelProps = {
   token: string;
   cashBalance: number;
   onSuccess: () => void;
+  marketRunning: boolean;
 };
+
+const AVAILABLE_SYMBOLS = baseHoldings.map((holding) => holding.symbol);
+const DEFAULT_SYMBOL = AVAILABLE_SYMBOLS[0] ?? "";
+const PRICE_LOOKUP = baseHoldings.reduce<Record<string, number>>((acc, holding) => {
+  acc[holding.symbol] = holding.price;
+  return acc;
+}, {});
+const NAME_LOOKUP = baseHoldings.reduce<Record<string, string>>((acc, holding) => {
+  acc[holding.symbol] = holding.name;
+  return acc;
+}, {});
 
 const EMPTY_FORM = {
-  symbol: "",
-  customSymbol: "",
+  symbol: DEFAULT_SYMBOL,
   shares: "",
-  price: "",
 };
 
-// 사용자가 수동으로 주문을 입력해 포트폴리오를 업데이트하는 패널
-export default function InvestPanel({ holdings, token, cashBalance, onSuccess }: InvestPanelProps) {
+export default function InvestPanel({ holdings, token, cashBalance, onSuccess, marketRunning }: InvestPanelProps) {
   const [form, setForm] = useState(EMPTY_FORM);
   const [action, setAction] = useState<"buy" | "sell">("buy");
-  const [direction, setDirection] = useState<"long" | "short">("long");
   const [status, setStatus] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
 
-  const selectableSymbols = useMemo(() => holdings.map((holding) => holding.symbol), [holdings]);
-
-  const resolvedSymbol = form.symbol === "custom" ? form.customSymbol.trim().toUpperCase() : form.symbol;
-  const resolvedPrice = form.price;
-  const selectedHolding =
-    holdings.find((holding) => holding.symbol === resolvedSymbol && holding.direction === direction) ??
-    holdings.find((holding) => holding.symbol === resolvedSymbol);
-
-  useEffect(() => {
-    if (form.symbol && form.symbol !== "custom") {
-      const matched =
-        holdings.find((holding) => holding.symbol === form.symbol && holding.direction === direction) ??
-        holdings.find((holding) => holding.symbol === form.symbol);
-      setForm((prev) => ({ ...prev, price: matched ? String(matched.price) : "" }));
-    } else if (form.symbol === "custom") {
-      setForm((prev) => ({ ...prev, price: "" }));
-    }
-  }, [form.symbol, holdings, direction]);
-
-  const clampShares = useCallback(
-    (value: string) => {
-      if (!value) return "";
-      const numeric = Number(value);
-      if (Number.isNaN(numeric)) return value;
-      if (action === "sell" && selectedHolding && numeric > selectedHolding.shares) {
-        return String(selectedHolding.shares);
-      }
-      return value;
-    },
-    [action, selectedHolding],
+  const heldSymbols = useMemo(
+    () =>
+      Array.from(
+        new Set(holdings.filter((holding) => holding.shares > 0).map((holding) => holding.symbol)),
+      ),
+    [holdings],
   );
-
+  const symbolOptions = action === "sell" ? heldSymbols : AVAILABLE_SYMBOLS;
+  const resolvedSymbol = symbolOptions.includes(form.symbol) ? form.symbol : symbolOptions[0] ?? "";
+  const hasSellableSymbols = heldSymbols.length > 0;
   useEffect(() => {
-    if (form.shares) {
-      setForm((prev) => ({ ...prev, shares: clampShares(prev.shares) }));
+    if (!symbolOptions.includes(form.symbol) && symbolOptions.length) {
+      setForm((prev) => ({ ...prev, symbol: symbolOptions[0] }));
     }
-  }, [action, selectedHolding, clampShares, form.shares]);
+  }, [symbolOptions, form.symbol]);
+  const direction = action === "buy" ? "long" : "short";
+  const latestPrice =
+    holdings.find((holding) => holding.symbol === resolvedSymbol)?.price ?? PRICE_LOOKUP[resolvedSymbol] ?? 0;
+  const currentPosition = holdings.find((holding) => holding.symbol === resolvedSymbol);
+  const tradingDisabled = !marketRunning;
+  const selectDisabled = tradingDisabled || (action === "sell" && !hasSellableSymbols);
+  const sellDisabled = action === "sell" && !hasSellableSymbols;
 
   const handleSubmit = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
+    if (!marketRunning) {
+      setStatus("시장 점검 중에는 주문할 수 없습니다.");
+      return;
+    }
     if (!token) return;
-    if (!resolvedSymbol || !form.shares || !resolvedPrice) {
-      setStatus("필수 입력값을 모두 채워주세요.");
+    if (!resolvedSymbol) {
+      setStatus("종목을 선택해주세요.");
       return;
     }
 
-      if (action === "sell") {
-        if (!selectedHolding) {
-          setStatus(`${direction === "long" ? "롱" : "숏"} 포지션이 존재하지 않습니다.`);
-          return;
-        }
-        if (Number(form.shares) > selectedHolding.shares) {
-          setStatus("보유 수량보다 많이 팔 수 없습니다.");
-          return;
-        }
-      }
+    const sharesValue = Number(form.shares);
+    if (Number.isNaN(sharesValue) || sharesValue <= 0) {
+      setStatus("보유 수량을 1주 이상 입력하세요.");
+      return;
+    }
+
+    if (latestPrice <= 0) {
+      setStatus("시장가를 가져올 수 없습니다.");
+      return;
+    }
 
     setLoading(true);
     setStatus(null);
-
     try {
       const response = await fetch("/api/portfolio/invest", {
         method: "POST",
@@ -95,11 +92,10 @@ export default function InvestPanel({ holdings, token, cashBalance, onSuccess }:
         },
         body: JSON.stringify({
           symbol: resolvedSymbol,
-          name: resolvedSymbol,
-          shares: Number(form.shares),
-          price: Number(resolvedPrice),
+          name: NAME_LOOKUP[resolvedSymbol] ?? resolvedSymbol,
+          shares: sharesValue,
+          price: latestPrice,
           action,
-          direction,
         }),
       });
 
@@ -108,16 +104,19 @@ export default function InvestPanel({ holdings, token, cashBalance, onSuccess }:
         throw new Error(error.message ?? "주문이 거절되었습니다.");
       }
 
-      setForm(EMPTY_FORM);
-      setStatus(
-        `${direction === "long" ? "롱" : "숏"} ${action === "buy" ? "진입" : "청산"} 주문이 체결되었습니다.`,
-      );
+      setForm((prev) => ({ ...prev, shares: "" }));
+      setStatus(`시장가 ${action === "buy" ? "매수" : "매도"} 주문이 접수되었습니다.`);
       onSuccess();
     } catch (error) {
       setStatus(error instanceof Error ? error.message : "주문 처리 중 오류가 발생했습니다.");
     } finally {
       setLoading(false);
     }
+  };
+
+  const updateAction = (value: "buy" | "sell") => {
+    if (tradingDisabled) return;
+    setAction(value);
   };
 
   return (
@@ -131,6 +130,11 @@ export default function InvestPanel({ holdings, token, cashBalance, onSuccess }:
           가용 현금 <span className="font-semibold text-white">${cashBalance.toLocaleString()}</span>
         </p>
       </header>
+      {!marketRunning && (
+        <div className="mb-4 rounded-2xl border border-rose-500/20 bg-rose-500/10 px-4 py-3 text-xs text-rose-200">
+          시장이 정지되어 있습니다. 재시작 후 주문이 가능해집니다.
+        </div>
+      )}
 
       <form className="space-y-4 text-sm" onSubmit={handleSubmit}>
         <div>
@@ -143,33 +147,13 @@ export default function InvestPanel({ holdings, token, cashBalance, onSuccess }:
               <button
                 key={option.value}
                 type="button"
-                onClick={() => setAction(option.value as "buy" | "sell")}
+                onClick={() => updateAction(option.value as "buy" | "sell")}
                 className={`rounded-2xl border px-4 py-2 font-semibold transition ${
-                  action === option.value ? "border-emerald-400 bg-emerald-400/20 text-white" : "border-white/10 text-slate-300"
-                }`}
-              >
-                {option.label}
-            </button>
-          ))}
-        </div>
-      </div>
-
-        <div>
-          <label className="text-slate-300">포지션</label>
-          <div className="mt-1 grid grid-cols-2 gap-2">
-            {[
-              { value: "long", label: "롱" },
-              { value: "short", label: "숏" },
-            ].map((option) => (
-              <button
-                key={option.value}
-                type="button"
-                onClick={() => setDirection(option.value as "long" | "short")}
-                className={`rounded-2xl border px-4 py-2 font-semibold transition ${
-                  direction === option.value
+                  action === option.value
                     ? "border-emerald-400 bg-emerald-400/20 text-white"
                     : "border-white/10 text-slate-300"
                 }`}
+                disabled={tradingDisabled}
               >
                 {option.label}
               </button>
@@ -179,79 +163,67 @@ export default function InvestPanel({ holdings, token, cashBalance, onSuccess }:
 
         <div>
           <label className="text-slate-300">종목</label>
-          <div className="mt-1 flex gap-2">
-            <select
-              className="w-1/2 rounded-2xl border border-white/10 bg-slate-900/60 px-3 py-2 focus:border-emerald-400 focus:outline-none"
-              value={form.symbol}
-              onChange={(event) => setForm((prev) => ({ ...prev, symbol: event.target.value }))}
-            >
-              <option value="">종목 선택</option>
-              {selectableSymbols.map((symbol) => (
-                <option key={symbol} value={symbol}>
-                  {symbol}
-                </option>
-              ))}
-              <option value="custom">직접 입력</option>
-            </select>
-            {form.symbol === "custom" && (
-              <input
-                type="text"
-                className="w-1/2 rounded-2xl border border-white/10 bg-slate-900/60 px-3 py-2 text-sm uppercase focus:border-emerald-400 focus:outline-none"
-                value={form.customSymbol}
-                onChange={(event) => setForm((prev) => ({ ...prev, customSymbol: event.target.value }))}
-                placeholder="예: TSLA"
-              />
-            )}
-          </div>
+          <select
+            className="mt-1 w-full rounded-2xl border border-white/10 bg-slate-900/60 px-3 py-2 focus:border-emerald-400 focus:outline-none"
+            value={resolvedSymbol}
+            onChange={(event) => setForm((prev) => ({ ...prev, symbol: event.target.value }))}
+            disabled={selectDisabled}
+          >
+            {symbolOptions.map((symbol) => (
+              <option key={symbol} value={symbol}>
+                {symbol}
+              </option>
+            ))}
+          </select>
+          {action === "sell" && !hasSellableSymbols && (
+            <p className="mt-1 text-xs text-rose-200">매도 가능한 자산이 없습니다.</p>
+          )}
         </div>
 
-      <div>
+        <div>
           <label className="text-slate-300">수량</label>
           <input
             type="number"
             min="1"
             value={form.shares}
-            onChange={(event) => {
-              const clamped = clampShares(event.target.value);
-              setForm((prev) => ({ ...prev, shares: clamped }));
-            }}
+            onChange={(event) => setForm((prev) => ({ ...prev, shares: event.target.value }))}
             className="mt-1 w-full rounded-2xl border border-white/10 bg-slate-900/60 px-3 py-2 focus:border-emerald-400 focus:outline-none"
-            placeholder="매수 수량"
+            placeholder={action === "buy" ? "매수 수량" : "매도 수량"}
+            disabled={tradingDisabled}
           />
         </div>
 
         <div>
-          <label className="text-slate-300">가격 (USD)</label>
-          <input
-            type="number"
-            min="1"
-            step="0.01"
-            value={resolvedPrice}
-            onChange={(event) => setForm((prev) => ({ ...prev, price: event.target.value }))}
-            className="mt-1 w-full rounded-2xl border border-white/10 bg-slate-900/60 px-3 py-2 focus:border-emerald-400 focus:outline-none"
-            placeholder="체결 단가"
-          />
+          <p className="text-xs uppercase tracking-[0.3em] text-slate-400">시장가</p>
+          <p className="text-lg font-semibold text-white">
+            {latestPrice > 0 ? `$${latestPrice.toFixed(2)}` : "데이터 없음"} · 자동 계산
+          </p>
+          <p className="text-xs text-slate-500">롱 포지션은 자동 청산되며, 숏 매도는 시장가로 체결됩니다.</p>
         </div>
 
         <button
           type="submit"
-          disabled={loading || !token}
-          className="w-full rounded-2xl bg-emerald-400/90 py-3 text-sm font-semibold text-slate-900 transition hover:bg-emerald-300 disabled:cursor-not-allowed disabled:opacity-60"
+          disabled={loading || !token || tradingDisabled || sellDisabled}
+          className={`w-full rounded-2xl py-3 text-sm font-semibold text-slate-900 transition disabled:cursor-not-allowed disabled:opacity-60 ${
+            action === "buy"
+              ? "bg-emerald-400/90 hover:bg-emerald-300"
+              : "bg-rose-500/90 hover:bg-rose-400"
+          }`}
         >
           {loading ? "주문 전송 중..." : action === "buy" ? "시장가 매수" : "시장가 매도"}
         </button>
       </form>
 
       <div className="mt-3 text-xs text-slate-400">
-        {action === "sell" && selectedHolding ? (
+        {currentPosition ? (
           <p>
-            현재 {selectedHolding.symbol} {direction === "long" ? "롱" : "숏"} {selectedHolding.shares.toLocaleString()}
-            주 · 평단 {formatCurrency(selectedHolding.avgCost, { maximumFractionDigits: 2 })}
+            현재 {currentPosition.symbol} {direction === "long" ? "롱" : "숏"} {currentPosition.shares.toLocaleString()}주
+            · 평단 {formatCurrency(currentPosition.avgCost, { maximumFractionDigits: 2 })}
           </p>
         ) : (
-          <p>매수 시 현금 잔액에서 차감되고, 매도 시 현금이 추가됩니다.</p>
+          <p>{direction === "long" ? "롱" : "숏"} 포지션이 존재하지 않습니다.</p>
         )}
-        <p className="mt-1">선물 포지션은 3분 후 자동 청산됩니다.</p>
+        <p className="mt-1">선물 포지션은 3분 뒤 자동 청산됩니다.</p>
       </div>
 
       {status && <p className="mt-2 text-center text-xs text-amber-200">{status}</p>}

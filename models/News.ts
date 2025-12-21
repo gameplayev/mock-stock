@@ -1,6 +1,7 @@
 import { Schema, model, models } from "mongoose";
 
 export interface NewsDocument {
+  _id: Schema.Types.ObjectId;
   title: string;
   summary: string;
   symbol: string;

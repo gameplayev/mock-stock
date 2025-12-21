@@ -4,8 +4,9 @@ import { FormEvent, useCallback, useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import type { Holding } from "@/types/portfolio";
 import { formatCurrency } from "@/lib/numberFormat";
+import type { MarketState } from "@/lib/marketControl";
 
-const STOCK_SYMBOLS = ["NXVD", "APPL", "TESL", "AMZX", "TSMX", "SPCX", "M8TA", "AMDD", "INTE", "NETX", "MICR", "GGLX"];
+const STOCK_SYMBOLS = ["NVDA", "AAPL", "TSLA", "AMZN", "TSM", "SPACEX", "META", "AMD", "INTC", "NFLX", "MSFT", "GOOGL"];
 
 type AdminUser = {
   id: string;
@@ -38,6 +39,19 @@ export default function AdminPage() {
   });
   const [cashInputs, setCashInputs] = useState<Record<string, string>>({});
   const [actionLoading, setActionLoading] = useState<string | null>(null);
+  const [marketState, setMarketState] = useState<MarketState | null>(null);
+  const fetchMarketState = useCallback(async () => {
+    try {
+      const response = await fetch("/api/market/state");
+      if (!response.ok) {
+        throw new Error("시장 상태를 불러올 수 없습니다.");
+      }
+      const data = await response.json();
+      setMarketState(data.state);
+    } catch (error) {
+      console.error("[MARKET][STATE][GET]", error);
+    }
+  }, []);
 
   const scoreboard = useMemo(() => {
     return [...users]
@@ -100,6 +114,42 @@ export default function AdminPage() {
       router.replace("/dashboard");
     });
   }, [bootstrap, router]);
+
+  useEffect(() => {
+    fetchMarketState();
+  }, [fetchMarketState]);
+
+  const handleMarketAction = useCallback(
+    async (action: "pause" | "start" | "reset") => {
+      if (!token) return;
+      setActionLoading(`market-${action}`);
+      setStatus(null);
+      try {
+        const response = await fetch("/api/market/state", {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            Authorization: `Bearer ${token}`,
+          },
+          body: JSON.stringify({ action }),
+        });
+        if (!response.ok) {
+          const errorData = await response.json();
+          throw new Error(errorData.message ?? "시장 제어 실패");
+        }
+        const data = await response.json();
+        setMarketState(data.state);
+        const label =
+          action === "reset" ? "초기화" : action === "start" ? "시작" : "정지";
+        setStatus({ type: "success", message: `시장 ${label}되었습니다.` });
+      } catch (error) {
+        setStatus({ type: "error", message: error instanceof Error ? error.message : "시장 제어 실패" });
+      } finally {
+        setActionLoading(null);
+      }
+    },
+    [token],
+  );
 
   const handlePriceUpdate = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
@@ -267,6 +317,45 @@ export default function AdminPage() {
             이 패널에서 유저 자산을 직접 조정하거나 주가를 일괄 변경하고, 신규 뉴스까지 배포할 수 있습니다.
             변경 사항은 즉시 사용자 화면에 반영됩니다.
           </p>
+          <div className="rounded-3xl border border-white/10 bg-white/[0.02] p-4 text-sm text-slate-300">
+            <div className="flex flex-wrap items-center gap-3">
+              <span
+                className={`rounded-full px-3 py-1 text-xs font-semibold ${
+                  marketState?.running
+                    ? "bg-emerald-500/10 text-emerald-200 border border-emerald-500/30"
+                    : "bg-rose-500/10 text-rose-200 border border-rose-500/30"
+                }`}
+              >
+                {marketState ? (marketState.running ? "시장 실행 중" : "시장 정지") : "상태 로딩 중"}
+              </span>
+              <span className="text-xs text-slate-400">
+                {marketState
+                  ? `마지막 ${marketState.lastAction === "reset" ? "초기화" : marketState.lastAction} · ${
+                      new Date(marketState.updatedAt).toLocaleTimeString("ko-KR", {
+                        hour: "2-digit",
+                        minute: "2-digit",
+                      })
+                    }`
+                  : "최신 상태를 불러오는 중입니다."}
+              </span>
+            </div>
+            <div className="mt-3 flex flex-wrap gap-2">
+              <button
+                onClick={() => handleMarketAction(marketState?.running ? "pause" : "start")}
+                disabled={!marketState || actionLoading?.startsWith("market-")}
+                className="rounded-2xl border border-white/10 px-4 py-2 text-xs font-semibold uppercase tracking-[0.3em] text-slate-300 transition hover:border-emerald-400 disabled:border-white/10 disabled:text-slate-500"
+              >
+                {marketState?.running ? (actionLoading === "market-pause" ? "정지 중..." : "시장 정지") : actionLoading === "market-start" ? "시작 중..." : "시장 시작"}
+              </button>
+              <button
+                onClick={() => handleMarketAction("reset")}
+                disabled={actionLoading === "market-reset"}
+                className="rounded-2xl border border-emerald-400/30 px-4 py-2 text-xs font-semibold uppercase tracking-[0.3em] text-emerald-200 transition hover:border-emerald-200 disabled:cursor-not-allowed disabled:opacity-60"
+              >
+                {actionLoading === "market-reset" ? "초기화 중..." : "시장 초기화"}
+              </button>
+            </div>
+          </div>
         </header>
 
         {status && (

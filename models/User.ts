@@ -4,6 +4,7 @@ import type { Holding } from "@/types/portfolio";
 export type HoldingDocument = Holding & { _id?: Schema.Types.ObjectId };
 
 export interface UserDocument {
+  _id: Schema.Types.ObjectId;
   name: string;
   username: string;
   password: string;

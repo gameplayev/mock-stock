@@ -12,12 +12,6 @@ export type Holding = {
   expiresAt?: string;
 };
 
-export type MarketIndex = {
-  label: string;
-  value: number;
-  change: number;
-};
-
 export type Headline = {
   id: number | string;
   title: string;

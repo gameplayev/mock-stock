@@ -1,6 +1,7 @@
 "use client";
 
 import type { Holding } from "@/types/portfolio";
+import { baseHoldings } from "@/lib/mockData";
 import {
   CartesianGrid,
   Line,
@@ -27,10 +28,17 @@ const createSeries = (symbol: string, base: number) => {
   });
 };
 
+const BASE_SYMBOLS = baseHoldings.map((holding) => holding.symbol);
+const SYMBOL_LOOKUP = baseHoldings.reduce<Record<string, Holding>>((acc, holding) => {
+  acc[holding.symbol] = holding;
+  return acc;
+}, {});
+
 export default function StockChartPanel({ holdings, selectedSymbol, onSymbolChange }: StockChartPanelProps) {
-  const chartSymbols = holdings.length ? Array.from(new Set(holdings.map((holding) => holding.symbol))) : ["NXVD"];
-  const symbolToShow = selectedSymbol || chartSymbols[0];
-  const active = holdings.find((holding) => holding.symbol === symbolToShow) ?? holdings[0];
+  const chartSymbols = Array.from(new Set([...BASE_SYMBOLS, ...holdings.map((holding) => holding.symbol)]));
+  const symbolToShow = selectedSymbol && chartSymbols.includes(selectedSymbol) ? selectedSymbol : chartSymbols[0];
+  const baseReference = SYMBOL_LOOKUP[symbolToShow];
+  const active = holdings.find((holding) => holding.symbol === symbolToShow) ?? baseReference;
   const series = createSeries(symbolToShow, active?.price ?? 100);
   const minPoint = Math.min(...series);
   const maxPoint = Math.max(...series);
@@ -100,7 +108,7 @@ export default function StockChartPanel({ holdings, selectedSymbol, onSymbolChan
                 borderRadius: 12,
                 color: "#fff",
               }}
-              formatter={(value) => {
+              formatter={(value: number | undefined) => {
                 const numeric = typeof value === "number" ? value : Number(value);
                 if (Number.isNaN(numeric)) {
                   return ["-", "가격"];

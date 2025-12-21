@@ -1,29 +1,22 @@
-import { Headline, Holding, MarketIndex } from "@/types/portfolio";
+import { Headline, Holding } from "@/types/portfolio";
 
 // 기본 보유 자산 (회원 가입 시 초기 자산으로 활용)
 export const baseHoldings: Holding[] = [
-  { symbol: "NXVD", name: "Nexvidia Labs", shares: 0, avgCost: 225.42, price: 892.1, change: 1.92, allocation: 12, direction: "long" },
-  { symbol: "APPL", name: "Appletone Devices", shares: 0, avgCost: 142.15, price: 194.3, change: 0.58, allocation: 11, direction: "long" },
-  { symbol: "TESL", name: "TeslaX Mobility", shares: 0, avgCost: 207.4, price: 231.8, change: -0.74, allocation: 10, direction: "long" },
-  { symbol: "AMZX", name: "Amazonix Commerce", shares: 0, avgCost: 125.6, price: 181.4, change: 0.82, allocation: 10, direction: "long" },
-  { symbol: "TSMX", name: "Tsmex Foundry", shares: 0, avgCost: 92.2, price: 118.4, change: 1.03, allocation: 9, direction: "long" },
-  { symbol: "SPCX", name: "SpaceX Ventures", shares: 0, avgCost: 276.8, price: 318.0, change: 2.16, allocation: 9, direction: "long" },
-  { symbol: "M8TA", name: "Metera Networks", shares: 0, avgCost: 352.1, price: 488.5, change: 1.82, allocation: 9, direction: "long" },
-  { symbol: "AMDD", name: "Amdium Semiconductors", shares: 0, avgCost: 118.3, price: 164.2, change: -0.53, allocation: 8, direction: "long" },
-  { symbol: "INTE", name: "Intentive Tech", shares: 0, avgCost: 55.0, price: 72.6, change: 0.34, allocation: 7, direction: "long" },
-  { symbol: "NETX", name: "NetX Stream", shares: 0, avgCost: 168.4, price: 209.5, change: -0.58, allocation: 7, direction: "long" },
-  { symbol: "MICR", name: "MicroCraft Systems", shares: 0, avgCost: 215.2, price: 269.9, change: 0.47, allocation: 7, direction: "long" },
-  { symbol: "GGLX", name: "Gogle Search Labs", shares: 0, avgCost: 118.6, price: 152.4, change: 0.64, allocation: 4, direction: "long" },
+  { symbol: "NVDA", name: "NVIDIA Corporation", shares: 0, avgCost: 225.42, price: 892.1, change: 1.92, allocation: 12, direction: "long" },
+  { symbol: "AAPL", name: "Apple Inc.", shares: 0, avgCost: 142.15, price: 194.3, change: 0.58, allocation: 11, direction: "long" },
+  { symbol: "TSLA", name: "Tesla, Inc.", shares: 0, avgCost: 207.4, price: 231.8, change: -0.74, allocation: 10, direction: "long" },
+  { symbol: "AMZN", name: "Amazon.com, Inc.", shares: 0, avgCost: 125.6, price: 181.4, change: 0.82, allocation: 10, direction: "long" },
+  { symbol: "TSM", name: "Taiwan Semiconductor Manufacturing Company", shares: 0, avgCost: 92.2, price: 118.4, change: 1.03, allocation: 9, direction: "long" },
+  { symbol: "SPACEX", name: "SpaceX Holdings", shares: 0, avgCost: 276.8, price: 318.0, change: 2.16, allocation: 9, direction: "long" },
+  { symbol: "META", name: "Meta Platforms, Inc.", shares: 0, avgCost: 352.1, price: 488.5, change: 1.82, allocation: 9, direction: "long" },
+  { symbol: "AMD", name: "Advanced Micro Devices, Inc.", shares: 0, avgCost: 118.3, price: 164.2, change: -0.53, allocation: 8, direction: "long" },
+  { symbol: "INTC", name: "Intel Corporation", shares: 0, avgCost: 55.0, price: 72.6, change: 0.34, allocation: 7, direction: "long" },
+  { symbol: "NFLX", name: "Netflix, Inc.", shares: 0, avgCost: 168.4, price: 209.5, change: -0.58, allocation: 7, direction: "long" },
+  { symbol: "MSFT", name: "Microsoft Corporation", shares: 0, avgCost: 215.2, price: 269.9, change: 0.47, allocation: 7, direction: "long" },
+  { symbol: "GOOGL", name: "Alphabet Inc.", shares: 0, avgCost: 118.6, price: 152.4, change: 0.64, allocation: 4, direction: "long" },
 ];
 
 // 지수 모듈
-export const marketPulseSeed: MarketIndex[] = [
-  { label: "S&P 500", value: 5124.21, change: -0.42 },
-  { label: "나스닥", value: 16242.11, change: 0.78 },
-  { label: "다우존스", value: 38901.45, change: -0.18 },
-  { label: "VIX", value: 12.94, change: -3.12 },
-];
-
 // 뉴스 모듈
 const STOCK_SYMBOLS = baseHoldings.map((holding) => holding.symbol);
 
@@ -109,7 +102,7 @@ const newsSources = ["Summit Desk", "Market Pulse", "Macro Wire", "Techno Sphere
 
 const TOTAL_NEWS = 150;
 
-export const newsSeed: Headline[] = Array.from({ length: TOTAL_NEWS }, (_, index) => {
+const buildHeadline = (index: number): Headline => {
   const id = index + 1;
   const timeAgo = timeStamps[index % timeStamps.length];
   const source = newsSources[index % newsSources.length];
@@ -163,4 +156,6 @@ export const newsSeed: Headline[] = Array.from({ length: TOTAL_NEWS }, (_, index
     impact,
     rateImpact,
   };
-});
+};
+
+export const newsSeed: Headline[] = Array.from({ length: TOTAL_NEWS }, (_, index) => buildHeadline(index));
