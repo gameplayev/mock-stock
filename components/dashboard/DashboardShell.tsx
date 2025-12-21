@@ -185,9 +185,6 @@ export default function DashboardShell({
             holdings={holdings}
             formatCurrency={formatCurrency}
             formatPercent={formatPercent}
-            token={token}
-            marketRunning={marketRunning}
-            onOrderComplete={onPortfolioRefresh}
           />
         </section>
 
