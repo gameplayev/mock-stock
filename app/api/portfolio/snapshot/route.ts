@@ -31,19 +31,21 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ message: "사용자를 찾을 수 없습니다." }, { status: 404 });
     }
 
-    const snapshotMap = new Map(
+    const snapshotMap: Map<string, SnapshotHolding> = new Map(
       holdings
         .filter((holding) => typeof holding.symbol === "string" && typeof holding.price === "number")
         .map((holding) => [holding.symbol, holding]),
     );
-    const baseLookup = new Map(baseHoldings.map((holding) => [holding.symbol, holding]));
-
-    let updated = 0;
-    const holdingsBySymbol = new Map(
-      user.holdings.map((holding: HoldingDocument) => [holding.symbol, holding]),
+    const baseLookup = new Map<string, (typeof baseHoldings)[number]>(
+      baseHoldings.map((holding) => [holding.symbol, holding]),
     );
 
-    snapshotMap.forEach((snapshot, symbol) => {
+    let updated = 0;
+    const holdingsBySymbol = new Map<string, HoldingDocument>(
+      (user.holdings as HoldingDocument[]).map((holding) => [holding.symbol, holding]),
+    );
+
+    snapshotMap.forEach((snapshot: SnapshotHolding, symbol) => {
       const target = holdingsBySymbol.get(symbol);
       if (target) {
         target.price = Number(snapshot.price.toFixed(2));
