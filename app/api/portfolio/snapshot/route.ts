@@ -39,7 +39,9 @@ export async function POST(request: NextRequest) {
     const baseLookup = new Map(baseHoldings.map((holding) => [holding.symbol, holding]));
 
     let updated = 0;
-    const holdingsBySymbol = new Map(user.holdings.map((holding) => [holding.symbol, holding]));
+    const holdingsBySymbol = new Map(
+      user.holdings.map((holding: HoldingDocument) => [holding.symbol, holding]),
+    );
 
     snapshotMap.forEach((snapshot, symbol) => {
       const target = holdingsBySymbol.get(symbol);
