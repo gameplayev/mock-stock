@@ -1,11 +1,13 @@
 import { NextRequest, NextResponse } from "next/server";
 import { verifyToken } from "@/lib/jwt";
+import { getInterestRate, setInterestRate } from "@/lib/marketControl";
 import { Headline } from "@/types/portfolio";
 
 const clampPercent = (value: number) => {
   const clamped = Math.max(-30, Math.min(30, Number(value)));
   return Number(clamped.toFixed(2));
 };
+const clampInterest = (value: number) => Number(Math.max(0.01, Math.min(0.1, value)).toFixed(4));
 
 export async function POST(request: NextRequest) {
   try {
@@ -58,6 +60,12 @@ export async function POST(request: NextRequest) {
       timeAgo,
       applied: true,
     };
+
+    if (headline.rateImpact) {
+      const currentRate = getInterestRate();
+      const nextRate = clampInterest(currentRate + headline.rateImpact / 100);
+      setInterestRate(nextRate);
+    }
 
     return NextResponse.json({ headline }, { status: 201 });
   } catch (error) {
