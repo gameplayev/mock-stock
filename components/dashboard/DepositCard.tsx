@@ -35,12 +35,12 @@ export default function DepositCard({
   const due = useMemo(() => (deposit ? new Date(deposit.dueAt) : null), [deposit]);
 
   useEffect(() => {
-    if (!due || !marketRunning) {
+    if (!due) {
       return undefined;
     }
     const timer = setInterval(() => setTicker(Date.now()), 1000);
     return () => clearInterval(timer);
-  }, [due, marketRunning]);
+  }, [due]);
   const timeLeft = due ? Math.max(0, due.getTime() - ticker) : 0;
 
   const handleSubmit = async (event: FormEvent<HTMLFormElement>) => {
@@ -55,9 +55,6 @@ export default function DepositCard({
   useEffect(() => {
     if (!deposit) {
       maturedRef.current = false;
-      return;
-    }
-    if (!marketRunning) {
       return;
     }
     if (timeLeft <= 0 && !maturedRef.current) {
