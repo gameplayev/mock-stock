@@ -40,10 +40,6 @@ export const settleDepositIfMatured = async (
     return null;
   }
 
-  if (!marketRunning) {
-    return getDepositSnapshot(user.fixedDeposit, getInterestRate());
-  }
-
   const due = new Date(user.fixedDeposit.dueAt).getTime();
   const now = Date.now();
   // Use the live benchmark so the payout math reflects whatever rate is active when the deposit expires.
@@ -54,6 +50,10 @@ export const settleDepositIfMatured = async (
     user.fixedDeposit = undefined;
     await user.save();
     return null;
+  }
+
+  if (!marketRunning) {
+    return getDepositSnapshot(user.fixedDeposit, currentRate);
   }
 
   // Keep the snapshot math aligned with the current benchmark rate while the deposit is still running.
