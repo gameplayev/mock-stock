@@ -4,6 +4,7 @@ import { dbConnect } from "@/lib/mongodb";
 import User from "@/models/User";
 
 const POSITION_DURATION_MS = 3 * 60 * 1000;
+const CONTRACT_MULTIPLIER = 10;
 
 export async function POST(request: NextRequest) {
   try {
@@ -51,6 +52,24 @@ export async function POST(request: NextRequest) {
 
     const now = new Date();
     const expiresAt = new Date(now.getTime() + POSITION_DURATION_MS).toISOString();
+
+    const reservedMargin = (user.futuresOrders ?? []).reduce((sum, order) => {
+      const entryPrice = Number(order.entryPrice);
+      const shares = Number(order.shares);
+      const leverage = Number(order.leverage) || 1;
+      if (!entryPrice || !shares || leverage <= 0) {
+        return sum;
+      }
+      return sum + (entryPrice * shares * CONTRACT_MULTIPLIER) / leverage;
+    }, 0);
+    const requiredMargin = (numericPrice * numericShares * CONTRACT_MULTIPLIER) / numericLeverage;
+    const availableMargin = user.cashBalance - reservedMargin;
+    if (availableMargin < requiredMargin) {
+      return NextResponse.json(
+        { message: "Insufficient margin for the futures position." },
+        { status: 400 },
+      );
+    }
 
     user.futuresOrders = [
       ...(user.futuresOrders ?? []),
